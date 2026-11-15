@@ -1,0 +1,9 @@
+# Local credentials and personal data
+.env
+.env.*
+!.env.example
+node_modules/
+coverage/
+*.log
+.DS_Store
+Thumbs.db
