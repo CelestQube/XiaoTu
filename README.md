@@ -28,6 +28,14 @@ QWEN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 - `.env` 被 Git 忽略且不能从网页读取；`.env.example` 是空白模板。若已设置同名系统环境变量，进程环境优先。
 - 可选填 `AMAP_MAPS_API_KEY` 启用[高德地图 MCP](https://developer.amap.com/api/mcp-server/gettingstarted)。未填高德密钥时仍可使用 Qwen，地点卡片会标注“本地演示”。
 
+## 在「我的行程」查看高德地图
+
+- 生成行程后打开「我的行程」，切换日期或点击具体安排下的「查看此地点的图片与评价」。地点按城市和名称（或高德别名）匹配，同名冲突、通用地点和缺失字段不猜测。图片、评分、地址、当日营业时间、人均消费只展示高德实际返回的内容。公开 POI 接口不返回逐条点评，可通过「在高德看详情与点评」打开对应地点。
+- 地图按天标注地点。选择已匹配的终点、起点和步行或驾车，再点「查看此段路线」，页面会显示高德返回的路程、耗时、路线步骤及实线；「在高德导航」打开高德网页或手机 App，不在小途内播报。
+- 「使用我的位置」只在用户点击且浏览器授权后读取 GPS；坐标仅用于高德转换、逆地理编码、路线和底图。不会写入本地存储或发给 Qwen；离开行程页或点「移除位置」即清除。不授权可正常用行程地点作为起点。
+- 使用已有的高德 **Web 服务** Key。默认复用 AMAP_MAPS_API_KEY；如果现有 Key 绑定其他平台，或希望和 MCP 分开，在根目录 .env 添加 AMAP_WEB_SERVICE_KEY= 后填写 Web 服务 Key、重启。地图组件不需要 Web 端（JS API）Key 或安全密钥。高德报 10009 表示 Key 与请求平台不符；若报 10005，按控制台要求检查服务器出口 IP。
+- [高德地点搜索与评分](https://lbs.amap.com/api/webservice/guide/api/newpoisearch) · [路线规划](https://lbs.amap.com/api/webservice/guide/api/newroute) · [静态地图](https://lbs.amap.com/api/webservice/guide/api/staticmaps) · [错误码说明](https://lbs.amap.com/api/webservice/guide/tools/info)
+
 ## 试用与能力边界
 
 1. 发送「从上海出发去杭州玩3天，两人，总预算1800元，2026-12-11出发」。

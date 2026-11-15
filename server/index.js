@@ -7,6 +7,7 @@ import {createAgent} from './agent/index.js';
 import {calendarFile} from './calendar.js';
 import {ModelError} from './model/qwen.js';
 import {clean} from './domain.js';
+import {createMapWeb,MapError} from './tools/map-web.js';
 const root=fileURLToPath(new URL('../public/',import.meta.url));
 const MIME={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8',
  '.svg':'image/svg+xml','.png':'image/png','.webp':'image/webp','.ico':'image/x-icon'};
@@ -34,11 +35,14 @@ async function bodyOf(req){
 }
 export function app(config=getConfig(),deps={}){
  const chat=createAgent(config,deps);
- let active=0;
+ const webKey=config.amapWeb||config.amap;
+ const map=createMapWeb(webKey,deps.fetcher);
+ let active=0, mapActive=0;
  return createServer(async(req,res)=>{
   res.setHeader('x-content-type-options','nosniff');
   res.setHeader('referrer-policy','no-referrer');
-  res.setHeader('content-security-policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+  res.setHeader('permissions-policy','geolocation=(self)');
+  res.setHeader('content-security-policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.amap.com https://*.autonavi.com; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
   try{
    const host=req.headers.host||'';
    if(!/^(localhost|127\.0\.0\.1)(:\d{1,5})?$/.test(host)) throw new RequestError(403,'仅允许本地访问。');
@@ -46,7 +50,7 @@ export function app(config=getConfig(),deps={}){
    const url=new URL(req.url,'http://'+host);
    const {pathname:p}=url;
    if(p==='/api/status' && req.method==='GET'){
-    return json(res,200,{mode:config.key?'qwen':'demo',map:config.amap?'amap':'demo',rail:'manual',calendar:'ics'});
+    return json(res,200,{mode:config.key?'qwen':'demo',map:config.amap?'amap':'demo',rail:'manual',calendar:'ics',mapWeb:Boolean(webKey)});
    }
    if(p==='/api/chat' && req.method==='POST'){
     if(active>=2) throw new RequestError(429,'当前请求较多，请稍后重试。');
@@ -57,6 +61,20 @@ export function app(config=getConfig(),deps={}){
     active++;
     try {return json(res,200,await chat(b));}
     finally {active--;}
+   }
+   if(p.startsWith('/api/maps/') && req.method==='POST'){
+    const action=p.slice('/api/maps/'.length);
+    if(!['day','route','locate','snapshot'].includes(action)) throw new RequestError(404,'地图接口不存在。');
+    if(mapActive>=3) throw new RequestError(429,'地图正在查询，请稍后重试。');
+    mapActive++;
+    try{
+     const b=await bodyOf(req);
+     if(!b) throw new RequestError(413,'请求太大。');
+     const result=await map[action](b);
+     if(action!=='snapshot') return json(res,200,result);
+     res.writeHead(200,{'content-type':result.type,'content-length':result.bytes.length,'cache-control':'no-store'});
+     return res.end(result.bytes);
+    } finally {mapActive--;}
    }
    if(p==='/api/calendar' && req.method==='POST'){
     const b=await bodyOf(req);
@@ -76,6 +94,7 @@ export function app(config=getConfig(),deps={}){
   }catch(e){
    if(res.headersSent){res.destroy();return;}
    if(e instanceof RequestError) return json(res,e.status,{error:e.message});
+   if(e instanceof MapError) return json(res,e.status,{error:e.message,...(e.code?{code:e.code}:{})});
    if(e instanceof ModelError) return json(res,502,{error:e.message});
    return json(res,500,{error:'本地服务处理失败，请重试。'});
   }

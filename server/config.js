@@ -9,6 +9,7 @@ export function getConfig(env = process.env) {
     thinking: /^(true|false)$/.test(env.QWEN_ENABLE_THINKING || '') ? env.QWEN_ENABLE_THINKING === 'true' : undefined,
     base: (env.QWEN_BASE_URL?.trim() || 'https://dashscope.aliyuncs.com/compatible-mode/v1').replace(/\/+$/, ''),
     amap: env.AMAP_MAPS_API_KEY?.trim() || '',
+    amapWeb: env.AMAP_WEB_SERVICE_KEY?.trim() || env.AMAP_MAPS_API_KEY?.trim() || '',
     port: /^\d+$/.test(env.PORT || '') && +env.PORT >= 1024 && +env.PORT <= 65535 ? +env.PORT : 3210
   };
 }

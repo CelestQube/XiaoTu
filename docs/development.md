@@ -11,6 +11,8 @@
 | `server/agent/index.js` | 解析、澄清、工具、拟案、验证、汇总 | 在此新增明确意图或调用策略，禁止模型直接执行任意工具 |
 | `server/agent/demo.js` | 规则解析、示范城市与画像建议 | 更新静态案例；不要将其标为实时 |
 | `server/agent/budget.js` | 人民币分项区间估算 | 接入实时价格、处理多房型及实际支出 |
+| public/trip-map.js、public/trip-map.css | 每日地图、选点、结构化详情卡、定位和分段路线 | 浏览器定位仅在用户点击后请求，勿放入持久化状态 |
+| server/tools/map-web.js | 高德 Web 服务：POI 核实、实景字段、坐标转换、算路、底图 | 增加公交或其他地图能力时显式扩展参数和测试 |
 | `server/tools/amap.js` | MCP 握手、受控查询、来源标识 | 扩展地理编码、路线模式，逐项确认高德返回字段 |
 | `server/agent/rail.js` | 票务缺失状态和官方查询提示 | 取得授权只读数据源后实现独立交通适配 |
 | `server/calendar.js` | 日期、授权与 ICS 生成 | 真正的日历写入作为独立授权适配器 |
@@ -22,6 +24,15 @@
 - `GET /api/status`：模型和地图是否已配置、票务与日历能力。仅返回模式，不回传密钥。
 - `POST /api/chat`：接收 `message, history, trip, priorPlan, profile`。返回 `mode, reply, trip`，可选 `plan, places, sources, weather, route, profileSuggestion`。信息不足返回部分 trip，不输出完整行程。
 - `POST /api/calendar`：接收 `plan, startDate, confirmed:true`，返回 `text/calendar`。按中国时区生成 UTC 时间，仅下载文件；重复导入可能产生重复事件。
+
+### 行程地图
+
+以下均使用同源 POST JSON，真实 Key 只由服务端读取：
+
+- /api/maps/day：接收 city 与当天按顺序排列的 locations；返回 matched / ambiguous / unresolved 状态，相应地点只绑定实际高德 POI。
+- /api/maps/route：由确认的高德坐标、可选 POI ID 和 walk/car 生成单段路线，返回官方步骤、距离、耗时及用于显示的简化折线。
+- /api/maps/locate：接收 GPS 坐标并转换到高德坐标系，可选逆地理编码。不得写入浏览器持久化或日志。
+- /api/maps/snapshot：接收有限点位和折线；后端请求高德静态地图并返回图像字节，前端使用临时 Blob URL。不会将 Key 发送到浏览器。
 
 ## 数据与决策
 

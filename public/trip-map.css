@@ -1,0 +1,59 @@
+/* 智能体行程地图：沿用小途的纸色、海雾底色与青绿路线标记。 */
+.trip-map{margin:20px 0 26px;border:1px solid #d5e3dc;border-radius:16px;background:var(--white);padding:22px;scroll-margin-top:20px}
+.trip-map-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
+.trip-map-head h2{font:500 clamp(23px,3vw,31px)/1.3 var(--display);margin:3px 0 5px}
+.trip-map-head p{margin:0;color:var(--muted)}
+.trip-map .map-fine{font-size:12px;color:var(--muted);margin:9px 0 0;overflow-wrap:anywhere}
+.map-days,.map-stops{display:flex;gap:8px;flex-wrap:wrap}
+.map-days{margin:15px 0 12px}
+.map-day,.map-stop{border:1px solid var(--line);border-radius:9px;background:var(--white);text-align:left}
+.map-day{padding:6px 12px;min-height:38px;font-weight:600}
+.map-day[aria-pressed=true],.map-stop[aria-pressed=true]{border-color:#84ae9b;background:#e8f2ed;color:#244f42}
+.map-layout{display:grid;grid-template-columns:minmax(0,1.65fr) minmax(245px,1fr);gap:16px;align-items:start}
+.map-main,.map-poi{min-width:0}
+.map-state{margin:8px 0 0;border:1px dashed #c9dad0;border-radius:11px;background:var(--paper);padding:20px;color:var(--ink)}
+.map-main .map-state{margin:0;min-height:140px;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;background:#eaf2ee}
+.map-state p{margin:4px 0 10px}
+.map-image{margin:0;border:1px solid #d5e3dc;border-radius:11px;background:var(--sky);overflow:hidden}
+.map-image img{width:100%;display:block;aspect-ratio:900/410;object-fit:contain}
+.map-image figcaption{font-size:11px;color:var(--muted);padding:3px 9px;text-align:right}
+.map-stops{margin:12px 0}
+.map-stop{padding:7px 10px;display:flex;gap:8px;align-items:center;max-width:100%;min-width:0;flex:1 1 125px;overflow-wrap:anywhere}
+.map-stop small,.map-stop strong{display:block}
+.map-stop small{color:var(--muted);font-size:11px}
+.map-stop strong{font-size:13px}
+.map-pin{background:#21655d;color:white;flex:0 0 24px;height:24px;display:grid;place-items:center;border-radius:50%;font-weight:700;font-size:12px}
+.map-poi{border:1px solid var(--line);background:#f9fbf9;border-radius:11px;overflow:hidden}
+.map-poi-empty,.poi-copy{padding:14px;overflow-wrap:anywhere}
+.map-poi-empty p,.poi-address,.poi-meta{margin:4px 0;color:var(--muted);font-size:13px}
+.poi-title{display:flex;justify-content:space-between;align-items:flex-start;gap:7px}
+.poi-title h3{margin:3px 0;font-size:19px}
+.poi-rating{flex-shrink:0;background:#f5ecd3;color:#654a16;padding:5px 7px;border-radius:6px;font-size:13px;font-weight:700}
+.poi-rating.missing{background:var(--green-soft);color:var(--muted);font-weight:400}
+.poi-rating small{font-size:10px}
+.poi-gallery{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:3px;background:var(--line)}
+.poi-gallery>*:first-child{grid-column:1/-1}
+.poi-photo{display:block;min-width:0}
+.poi-photo img{width:100%;height:64px;object-fit:cover;display:block}
+.poi-photo:first-child img{height:155px}
+.poi-no-photo{display:flex;align-items:center;justify-content:center;gap:6px;min-height:80px;background:var(--sky);color:#47665e;font-size:13px}
+.poi-links{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+.trip-map .outline{padding:5px 9px;min-height:35px;font-size:12px}
+.map-route,.map-location{border:1px solid #d5e3dc;border-radius:9px;padding:11px;background:#f3f8f5}
+.map-route-controls{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px}
+.map-route-controls label{display:grid;gap:4px;font-size:12px;color:#49695c;min-width:0;flex:1 1 102px}
+.map-route-controls select{width:100%;border:1px solid #cfded4;border-radius:7px;background:white;padding:6px;height:36px}
+.trip-map .map-route-controls .primary{min-height:36px;padding:6px 11px;font-size:12px}
+.map-route-result{margin-top:8px;font-size:13px;overflow-wrap:anywhere}
+.map-route-result summary{cursor:pointer}
+.map-route-result ol{padding-left:22px;margin:6px 0}
+.map-location{margin-top:10px;font-size:12px;overflow-wrap:anywhere}
+.map-error{color:var(--danger);font-size:13px;margin:8px 0 0;overflow-wrap:anywhere}
+.timeline-map-link{border:0;padding:4px 0;margin:0;color:#21655d;font-size:12px;text-align:left;text-decoration:underline;text-underline-offset:3px}
+@media(max-width:900px){.map-layout{grid-template-columns:1fr}.map-poi{max-width:none}}
+@media(max-width:540px){
+ .trip-map{padding:13px;border-radius:12px}
+ .trip-map-head{flex-wrap:wrap;gap:8px}
+ .map-stops{gap:5px}
+ .map-stop{flex-basis:105px}
+}
