@@ -1,0 +1,6 @@
+{
+  "phases": {
+    "route": [],
+    "plan": ["itinerary-planning"]
+  }
+}

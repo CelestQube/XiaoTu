@@ -3,7 +3,26 @@
 .env.*
 !.env.example
 node_modules/
+.runtime/
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
 coverage/
 *.log
+*.pem
+*.key
+*.p12
+*.pfx
+.ssh/
 .DS_Store
 Thumbs.db
+
+# Local IDE/agent settings and generated indexes, not app configuration
+/.arts/
+/.codeartsdoer/
+/.merkle-snapshot.json

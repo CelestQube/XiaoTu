@@ -1,43 +1,48 @@
-# 小途开发说明
+# 小途开发指南
 
-## 模块位置
+FastAPI 是唯一应用后端，同时提供网页和同源 JSON 接口。LangChain 封装 Qwen 的结构化输出，LangGraph 编排路由、查询、行程拟稿以及模拟订单确认。模型不会获准执行任意 MCP 工具，也不会直接下单。
 
-| 路径 | 用途 | 从哪里扩展 |
-| --- | --- | --- |
-| `public/index.html`、`app.js`、`styles.css` | 聊天、行程、预算、画像与本地保存 | 新页面、移动端交互、语音与图片入口 |
-| `server/index.js` | HTTP 路由、静态资源和本地安全边界 | 新接口从此处挂载，参数校验放在业务模块 |
-| `server/config.js`、`.env.example` | 本地环境变量及默认值 | 新配置先加空白示例，真实凭据只放本地 |
-| `server/model/qwen.js` | Qwen 兼容请求与错误归类 | 新增模型供应商或 AgentArts 客户端可在同目录独立实现 |
-| `server/agent/index.js` | 解析、澄清、工具、拟案、验证、汇总 | 在此新增明确意图或调用策略，禁止模型直接执行任意工具 |
-| `server/agent/demo.js` | 规则解析、示范城市与画像建议 | 更新静态案例；不要将其标为实时 |
-| `server/agent/budget.js` | 人民币分项区间估算 | 接入实时价格、处理多房型及实际支出 |
-| public/trip-map.js、public/trip-map.css | 每日地图、选点、结构化详情卡、定位和分段路线 | 浏览器定位仅在用户点击后请求，勿放入持久化状态 |
-| server/tools/map-web.js | 高德 Web 服务：POI 核实、实景字段、坐标转换、算路、底图 | 增加公交或其他地图能力时显式扩展参数和测试 |
-| `server/tools/amap.js` | MCP 握手、受控查询、来源标识 | 扩展地理编码、路线模式，逐项确认高德返回字段 |
-| `server/agent/rail.js` | 票务缺失状态和官方查询提示 | 取得授权只读数据源后实现独立交通适配 |
-| `server/calendar.js` | 日期、授权与 ICS 生成 | 真正的日历写入作为独立授权适配器 |
-| `server/domain.js` | 输入过滤、日期及计划结构 | 扩展时间区间和交通衔接约束 |
-| `test/agent.test.js` | 业务、模拟供应商及 HTTP 回归 | 新增场景、外部协议契约及失败用例 |
+## 目录与开发入口
 
-## HTTP 约定
+| 目录 / 文件 | 用途与扩展方式 |
+| --- | --- |
+| `public/`、`test/frontend/` | 网页、地图、地点替换、铁路表单和模拟外卖；新增交互使用固定 API 夹具。见[前端设计](design.md)。 |
+| `backend/src/xiaotu/__main__.py`、`app.py` | CLI、FastAPI 路由、请求约束、同源检查和静态文件；新增 HTTP 接口在此登记，业务规则放在对应模块。 |
+| `backend/src/xiaotu/config.py`、`config/`、`skills/` | 配置、已登记的 MCP 适配器白名单和分阶段 Skill；新服务先写适配器再注册。见[能力管理](capabilities.md)。 |
+| `backend/src/xiaotu/agent/` | `graphs.py` 和 `intent.py` 区分自然聊天、只读查询和行程编排，`model.py` 管 Qwen，`lookup.py` 产出查询卡片，`journey.py` 管交通候选与默认值，`places.py` 管地点签名及编辑预览，`weather.py` 管预报证据，`demo.py` 提供无密钥演示。 |
+| `backend/src/xiaotu/domain.py` | 旅行日期、行程校验、预算与日历文件。 |
+| `backend/src/xiaotu/tools/` | `rail.py` 管 12306 stdio、校验和缓存；`tencent.py`、`tencent_transport.py`、`tencent_fields.py` 分离地图业务、HTTP 传输和结果解析。 |
+| `backend/src/xiaotu/execution/`、`food/` | 执行截止、重试、持久化查单及模拟商家和对照基准。见[弱网实验](reliable-tool-experiment.md)。 |
+| `backend/tests/` | FastAPI 契约、适配器协议和可靠执行回归；使用离线夹具、临时数据库或本机回环。 |
+| `backend/pyproject.toml`、`constraints.txt`；`package.json`、`package-lock.json` | Python 依赖和版本约束；npm 只用于安装固定版本的 12306 MCP（及其依赖）和运行网页测试。 |
 
-- `GET /api/status`：模型和地图是否已配置、票务与日历能力。仅返回模式，不回传密钥。
-- `POST /api/chat`：接收 `message, history, trip, priorPlan, profile`。返回 `mode, reply, trip`，可选 `plan, places, sources, weather, route, profileSuggestion`。信息不足返回部分 trip，不输出完整行程。
-- `POST /api/calendar`：接收 `plan, startDate, confirmed:true`，返回 `text/calendar`。按中国时区生成 UTC 时间，仅下载文件；重复导入可能产生重复事件。
+## HTTP 接口速查
 
-### 行程地图
+请求和响应的可执行示例以 `backend/tests/` 为准。大多数接口使用同源 `POST` JSON。
 
-以下均使用同源 POST JSON，真实 Key 只由服务端读取：
+| 接口 | 主要约定 |
+| --- | --- |
+| `GET /api/status` | 返回模型、地图、铁路等配置状态，不验证上游鉴权、不返回密钥。 |
+| `POST /api/chat` | 输入 `message` 和可选 `history, trip, priorPlan, profile`；返回 `mode, intent, reply`。仅 `intent=plan` 返回行程更新；普通聊天不调用地图或铁路。只读查询可返回 `sources` 和 `cards`（`type=weather/rail`，由实际工具结果构建，不接受模型生成的数据卡片）。前端在原消息下渲染，缺字段不填造。 |
+| `POST /api/travel` | 入参 `origin, destination, date, time, mode`，可指定 `middle`。返回原查询要求、实际查询日期/时间、铁路与自驾候选；仅在直达明确无匹配时按 `auto` 补查一次换乘。 |
+| `POST /api/rail/query` | `action=tickets/transfer/stops/stations`。票务输入起终点与日期；经停输入车次与日期；车站输入关键词。空结果与工具故障分开，不伪造席别、价格或余票。 |
+| `POST /api/maps/day, search, detail, locate, route, snapshot` | 核实当日地点、同城搜索、POI 详情、GPS 反查、分段路线和静态 PNG。坐标对外为「经度,纬度」。缺折线时只在 `geometry:true` 按需尝试补查，失败不画假轨迹。 |
+| `POST /api/plan/place-options`、`place-preview` | `day, index` 是从零开始的索引。地点必须经过签名校验；手填标待核实。预览不落盘，用户选定后才由客户端应用到草案并保留该地点。 |
+| `POST /api/calendar` | 校验 `plan, startDate, confirmed:true`，下载 ICS，不触发第三方写入；重复导入可能产生重复事件。 |
+| `POST /api/food/menu, quote, confirm, status` | 仅模拟外卖开启时可用。确认必须明确提供 `confirmed:true`，同一匿名会话可查原报价和回执，不涉及真实账号或订单。 |
 
-- /api/maps/day：接收 city 与当天按顺序排列的 locations；返回 matched / ambiguous / unresolved 状态，相应地点只绑定实际高德 POI。
-- /api/maps/route：由确认的高德坐标、可选 POI ID 和 walk/car 生成单段路线，返回官方步骤、距离、耗时及用于显示的简化折线。
-- /api/maps/locate：接收 GPS 坐标并转换到高德坐标系，可选逆地理编码。不得写入浏览器持久化或日志。
-- /api/maps/snapshot：接收有限点位和折线；后端请求高德静态地图并返回图像字节，前端使用临时 Blob URL。不会将 Key 发送到浏览器。
+地点规划会先利用地图已核实的候选和短期天气，未核实点不当作地图证据；必要时给可替换候选或留空待选。用户确认并保留的地点优先不动；跨日移动或同日换序须由用户选择预览。直线距离只是编辑参考，不代表最优车程；天气只展示可核实预报和风险提示，不把预报当权威预警。
 
-## 数据与决策
+## 检查命令
 
-先解析本次硬约束，缺少目的地、人数或天数时追问；已确认的画像只作为偏好。后端根据已校验的目的地选择白名单内的地图工具。模型返回建议及结构化日程，后端校验天数、时间格式和顺序，再统一计算预算。确认动作不由模型触发。规划草案仍不能替代人工核查开放时间、实际通勤、票务及天气；当前只检测时间点顺序，尚未建立活动时长和交通衔接求解。
+在项目根目录使用已激活的 Python 3.12 虚拟环境（或用环境内的 Python 可执行文件替换命令）：
 
-## AgentArts 参赛路线
+~~~powershell
+python -m pip install -c backend/constraints.txt -e "./backend[dev]"
+npm.cmd ci --ignore-scripts
+python -m xiaotu --check-capabilities
+python -m pytest -q backend
+npm.cmd test
+~~~
 
-当前代码是**独立 Qwen 网页原型**，不等于已在 AgentArts 编排或部署。参赛版本可把需求提取、条件分支、MCP 查询、知识检索、结构化输出及评测迁移到 [AgentArts 工作流](https://support.huaweicloud.com/lowcode-agentarts/agentarts_05_0041.html)，保留网页接口及后端确定性预算、确认与校验能力。待平台账号、模型接入和工具权限确认后，再真实部署和记录评测结果。
+自动化测试不访问真实 Qwen、地图或铁路服务；stdio 测试启动本机伪 MCP 子进程，故障测试需要回环网络。若要换端口，在 `python -m xiaotu` 后加 `--port`；改端口前先考虑浏览器草案按源隔离。同一端口只运行一个服务，改 Python 配置或源代码后重启进程。

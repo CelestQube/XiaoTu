@@ -1,0 +1,22 @@
+{
+  "mcpServers": {
+    "tencent-maps": {
+      "transportType": "streamable-http",
+      "url": "https://mcp.map.qq.com/mcp",
+      "disabled": false,
+      "allowedTools": [
+        "placeSuggestion", "placeDetail", "geocoder", "reverseGeocoder", "weather",
+        "directionWalking", "directionDriving", "directionBicycling", "directionTransit"
+      ]
+    },
+    "12306": {
+      "transportType": "stdio",
+      "package": "12306-mcp",
+      "disabled": false,
+      "allowedTools": [
+        "get-tickets", "get-interline-tickets", "get-train-route-stations",
+        "get-stations-code-in-city", "get-station-code-by-names", "get-station-by-telecode"
+      ]
+    }
+  }
+}
