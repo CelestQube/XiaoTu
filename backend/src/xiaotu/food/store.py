@@ -57,13 +57,18 @@ class Ledger:
                 details TEXT NOT NULL, digest TEXT NOT NULL, status TEXT NOT NULL,
                 expires_at REAL NOT NULL,
                 deadline_at REAL, lease_id TEXT, lease_until REAL,
-                order_id TEXT
+                order_id TEXT, snapshot TEXT
             );
             CREATE TABLE IF NOT EXISTS food_trace (
                 seq INTEGER PRIMARY KEY AUTOINCREMENT, operation_id TEXT NOT NULL,
                 ts REAL NOT NULL, event TEXT NOT NULL, attempt INTEGER NOT NULL, code TEXT NOT NULL
             );
         """)
+        with self.db.connection() as db:
+            columns = {row[1] for row in db.execute("PRAGMA table_info(food_operations)")}
+        if columns and "snapshot" not in columns:
+            with self.db.connection(write=True) as db:
+                db.execute("ALTER TABLE food_operations ADD COLUMN snapshot TEXT")
 
     def quote(self, actor: str, details: dict, expires_at: float) -> None:
         with self.db.connection(write=True) as db:
@@ -130,6 +135,12 @@ class Ledger:
                            (status, operation_id, actor, lease))
             row = db.execute("SELECT * FROM food_operations WHERE actor = ? AND id = ?", (actor, operation_id)).fetchone()
             return dict(row) if row is not None else None
+
+    def set_snapshot(self, actor: str, operation_id: str, ids: list[str] | None) -> None:
+        """Persist the pre-send account snapshot used to reconcile lost replies."""
+        with self.db.connection(write=True) as db:
+            db.execute("UPDATE food_operations SET snapshot = ? WHERE id = ? AND actor = ?",
+                       (canonical(list(ids)) if ids is not None else None, operation_id, actor))
 
     def trace(self, operation_id: str, now: float, event: str, attempt: int, code: str) -> None:
         with self.db.connection(write=True) as db:
