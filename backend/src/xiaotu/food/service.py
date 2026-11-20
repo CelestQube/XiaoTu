@@ -250,6 +250,21 @@ class FoodService:
     def _verify(self, receipt: dict, operation_id: str, details: dict) -> str:
         return self.provider.verify_receipt(receipt, operation_id, details)
 
+    @staticmethod
+    def _merge_receipt(value: dict, receipt: dict | None) -> dict:
+        """Carry display fields from a fresh provider receipt into the output.
+
+        Persisted state stays minimal (status, order id, snapshot); the receipt
+        enriches this response, and later status queries refresh it live.
+        """
+        if not isinstance(receipt, dict) or value.get("provider") != "mcd":
+            return value
+        for key in ("orderStatus", "payUrl", "pickupCode", "lockerCode", "createTime",
+                    "products", "totalFen", "amountMismatch", "storeName"):
+            if receipt.get(key) is not None:
+                value[key] = receipt[key]
+        return value
+
     async def execute(self, actor: str, operation_id: str) -> dict:
         _actor(actor)
         _op_id(operation_id)
@@ -272,8 +287,11 @@ class FoodService:
             snapshot = await self.provider.recent_orders(actor)
             await asyncio.to_thread(self.ledger.set_snapshot, actor, operation_id, snapshot)
 
+        fresh: dict = {}
+
         async def submit() -> str:
             receipt = await self.provider.create_order(actor, operation_id, details)
+            fresh.update(receipt)
             return self._verify(receipt, operation_id, details)
 
         try:
@@ -297,23 +315,25 @@ class FoodService:
         else:
             result = await asyncio.to_thread(self.ledger.settle, actor, operation_id, "placed", order_id=order_id)
         await trace("outcome", 0, result["status"])
-        return await self._enrich(self._output(result))
+        return self._merge_receipt(await self._enrich(self._output(result)), fresh or None)
 
     async def _reconcile(self, actor: str, row: dict, timeout: float = 0.8) -> dict:
         operation_id = row["id"]
         details = json.loads(row["details"])
         snapshot = json.loads(row["snapshot"]) if row.get("snapshot") else None
+        found: dict | None = None
         try:
             receipt = await asyncio.wait_for(
                 self.provider.find_order(actor, operation_id, details, snapshot), timeout)
             if receipt is not None:
                 order_id = self._verify(receipt, operation_id, details)
                 row = await asyncio.to_thread(self.ledger.settle, actor, operation_id, "placed", order_id=order_id)
+                found = receipt
             code = "placed" if receipt is not None else "not_found_yet"
         except (ToolUncertain, ToolRejected, OSError, asyncio.TimeoutError):
             code = "unavailable"
         await asyncio.to_thread(self.ledger.trace, operation_id, self.clock(), "reconcile", 0, code)
-        return await self._enrich(self._output(row))
+        return self._merge_receipt(await self._enrich(self._output(row)), found)
 
     async def _status(self, actor: str, row: dict) -> dict:
         if row["status"] == "confirming" and row["lease_until"] <= self.clock():
