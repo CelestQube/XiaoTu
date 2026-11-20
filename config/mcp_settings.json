@@ -17,6 +17,15 @@
         "get-tickets", "get-interline-tickets", "get-train-route-stations",
         "get-stations-code-in-city", "get-station-code-by-names", "get-station-by-telecode"
       ]
+    },
+    "mcd": {
+      "transportType": "streamable-http",
+      "url": "https://mcp.mcd.cn",
+      "disabled": false,
+      "allowedTools": [
+        "delivery-query-addresses", "delivery-query-stores", "query-meals", "query-meal-detail",
+        "query-store-coupons", "calculate-price", "query-order", "order-list", "create-order"
+      ]
     }
   }
 }

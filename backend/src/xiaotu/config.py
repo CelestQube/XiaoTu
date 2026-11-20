@@ -18,6 +18,10 @@ MCP = {
         "get-tickets", "get-interline-tickets", "get-train-route-stations",
         "get-stations-code-in-city", "get-station-code-by-names", "get-station-by-telecode"
     })),
+    "mcd": ("streamable-http", "url", "https://mcp.mcd.cn", frozenset({
+        "delivery-query-addresses", "delivery-query-stores", "query-meals", "query-meal-detail",
+        "query-store-coupons", "calculate-price", "query-order", "order-list", "create-order"
+    })),
 }
 
 
@@ -36,6 +40,8 @@ class Settings:
     skill_names: dict = field(default_factory=dict)
     food_enabled: bool = False
     food_url: str = ""
+    mcd_token: str = ""
+    mcd_order_enabled: bool = False
 
 
 def _read(path, limit=64_000):
@@ -121,4 +127,5 @@ def load_settings(root=ROOT, env=None):
                     tencent_key=get("TENCENT_MAP_API_KEY"), rail_enabled=get("RAIL_MCP_ENABLED").lower() != "false",
                     port=port if 1024 <= port <= 65535 else 3212,
                     mcp=mcp, skills=skills, skill_names=names, food_enabled=get("XIAOTU_FOOD_DEMO").lower() == "true",
-                    food_url=get("XIAOTU_FOOD_SANDBOX_URL"))
+                    food_url=get("XIAOTU_FOOD_SANDBOX_URL"),
+                    mcd_token=get("MCD_MCP_TOKEN"), mcd_order_enabled=get("XIAOTU_MCD_ORDER").lower() == "true")
