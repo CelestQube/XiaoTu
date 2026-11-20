@@ -43,7 +43,7 @@ test('chat entry wires cards to lookup messages and gates itinerary writes on pl
   const app = await readFile(new URL('../../public/app.js',import.meta.url),'utf8');
   const html = await readFile(new URL('../../public/index.html',import.meta.url),'utf8');
   assert.match(app, /renderChatCards\(m.cards, icon\)/);
-  assert.match(app, /cards:data.intent === 'lookup' \? data.cards : undefined/);
+  assert.match(app, /cards:\(data.intent === 'lookup' \|\| data.intent === 'food'\) \? data.cards : undefined/);
   assert.match(app, /const updatingTrip = data.intent === 'plan'/);
   assert.match(app, /if \(updatingTrip && data.trip\) state.trip/);
   assert.match(html, /chat-cards\.css/);

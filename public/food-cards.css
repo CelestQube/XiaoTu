@@ -1,0 +1,29 @@
+/* McDonald's branch cards: same shell as the other chat cards. */
+.chat-card-food { --card-accent: #b0491f; --card-wash: #fdf3ec; }
+.food-group { margin: 10px 0; }
+.food-group-name { display: block; font-size: 12px; color: var(--card-accent); margin-bottom: 5px; }
+.food-item-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.food-item-list li {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  padding: 7px 10px; border-radius: 9px; background: var(--card-wash); font-size: 13px;
+}
+.food-item-list b { white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--card-accent); }
+.food-item-list s { color: var(--muted); font-weight: 400; margin-left: 4px; }
+.food-item-list small { display: block; font-size: 11px; color: var(--muted); margin-top: 2px; }
+.food-totals {
+  display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 10px 0 0; padding: 10px 12px;
+  border-radius: 9px; background: var(--card-wash);
+}
+.food-totals div { display: flex; gap: 6px; align-items: baseline; font-size: 12px; }
+.food-totals dt { color: var(--muted); }
+.food-totals dd { margin: 0; font-size: 13px; }
+.food-pay dd { font-size: 15px; font-weight: 700; color: var(--card-accent); }
+.food-order-status { margin: 10px 0 0; font-size: 13px; font-weight: 600; color: var(--card-accent); }
+.food-warning {
+  margin: 8px 0 0; padding: 8px 10px; border-radius: 8px; font-size: 12px;
+  color: #704816; background: #fcf2df;
+}
+.food-order-id { margin: 8px 0 0; font-size: 12px; color: var(--muted); }
+.food-order-id code { background: var(--card-wash); border-radius: 5px; padding: 2px 6px; }
+.food-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+.food-actions a { text-decoration: none; }
