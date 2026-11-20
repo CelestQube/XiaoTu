@@ -191,3 +191,5 @@ def test_capabilities_current_files():
     assert "get-tickets" in settings["12306"]["allowedTools"]
     assert "itinerary-planning" in names["plan"]
     assert "itinerary-planning" in texts["plan"]
+    assert "create-order" in settings["mcd"]["allowedTools"]
+    assert "mcd-delivery" in names["route"] and "mcd-delivery" in texts["route"]

@@ -1,6 +1,6 @@
 {
   "phases": {
-    "route": [],
+    "route": ["mcd-delivery"],
     "plan": ["itinerary-planning"]
   }
 }
