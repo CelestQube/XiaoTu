@@ -15,7 +15,8 @@
 
 - `public/index.html`、`styles.css`：应用壳、设计变量及移动端布局；`app.js`：页面状态、聊天、账本和偏好。
 - `departure.js`、`rail-query.js`、`location.js`：出发条件、铁路查询与浏览器定位；缺起点时行程卡可尝试获取城市，具体坐标不在前端持久保存。
-- `trip-map.js`、`place-editor.js`：地图、同城地点搜索与编辑预览；`food-order.js`：报价、明确确认和查询原订单结果。
+- `trip-map.js`、`place-editor.js`：地图、同城地点搜索与编辑预览；`food-order.js`：模拟外卖的报价、明确确认和查询原订单结果。
+- `chat-cards.js` 会渲染外卖分支的卡片（菜单、门店、地址、优惠券、订单、报价单）；报价卡上的「确认下单」是唯一的下单入口，成功后返回 `#/order/<报价标识>` 路由打开订单详情视图。导航组件不设外卖入口，建议栏提供「帮我点份外卖」。
 - `xiaotu.workspace.v1` 保存偏好、旅行、草案和账本；聊天记录只在页面内存。浏览器源切换时不共享草案。后台接口与测试见[开发指南](development.md)。
 
 ## 品牌与扩展
