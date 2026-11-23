@@ -100,6 +100,12 @@ def test_demo_requires_a_real_plan_request_even_with_existing_trip_and_allows_co
                         "去杭州旅游要带什么？","去杭州旅游有什么好玩的？"):
             result = chat(client, message)
             assert result["intent"] == "chat" and "trip" not in result
+        # Prefix verbs and a bare trailing request must plan without waiting for the model.
+        planned = chat(client, "计划去厦门玩3天，两个人，希望住在方便出行的地方，每晚住宿预算400元，请帮我规划。")
+        assert planned["intent"] == "plan" and planned["trip"]["city"] == "厦门"
+        assert chat(client, "安排去苏州玩2天")["intent"] == "plan"
+        assert chat(client, "可以帮我安排一下吗")["intent"] == "plan"
+        assert chat(client, "别帮我规划")["intent"] == "chat"
         first = chat(client, "去杭州", trip={}, priorPlan=None)
         assert first["intent"] == "plan" and "plan" not in first
         history = [{"role":"user","content":"去杭州"},{"role":"assistant","content":first["reply"]}]
