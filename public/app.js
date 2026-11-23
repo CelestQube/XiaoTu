@@ -10,6 +10,8 @@ const $ = (selector) => document.querySelector(selector);
 const esc = (value = '') => String(value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const money = (value = 0) => new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }).format(Number(value) || 0);
 const key = 'xiaotu.workspace.v1';
+// Thinking models may reason for a minute or more before an itinerary arrives.
+const CHAT_WAIT = 240000;
 let stored = {};
 try { stored = JSON.parse(localStorage.getItem(key) || '{}') || {}; } catch { /* Corrupt storage must not prevent startup. */ }
 const state = {
@@ -56,6 +58,7 @@ const suggestions = [
   { icon: 'train', label: '想个周末出逃计划', prompt: '我住在上海，周末想坐高铁去杭州玩2天，喜欢散步和湖边风景，预算1500元。' },
   { icon: 'cloud', label: '看看目的地天气', prompt: '杭州明天天气怎么样？' },
   { icon: 'train', label: '查车次、票价和余票', prompt: '查一下明天上海到杭州的高铁票。' },
+  { icon: 'fork', label: '帮我点份外卖', prompt: '帮我点一份麦当劳外卖。' },
 ];
 function persist() {
   try { localStorage.setItem(key, JSON.stringify({ profile: state.profile, trip: state.trip, plan: state.plan, expenses: state.expenses, planMode: state.planMode })); }
@@ -66,15 +69,15 @@ function toast(message) {
   clearTimeout(toast.timer); toast.timer = setTimeout(() => el.classList.remove('show'), 4500);
 }
 function navigate(view) { state.view = view; render(); $('#main')?.focus({ preventScroll: true }); if(view==='itinerary')autoDeparture(); }
-function badge(mode) { return mode === 'qwen' ? 'Qwen 对话' : '演示模式'; }
+function badge(mode, name) { return mode === 'qwen' ? esc(name || '模型') + ' 对话' : '演示模式'; }
 function placeBadge(item) {
   const status=item.mapStatus==='verified'&&(item.poi?.tripCity!==state.trip.city||item.poi?.name!==item.location)?'pending':item.mapStatus;
   const label = {verified:'地图已核实',pending:'待核实',placeholder:'待选'}[status];
   return (label ? '<span class="place-proof">'+label+'</span>' : '')+(item.locked?'<span class="place-proof place-retained" title="重新规划时保留此地点">已保留</span>':'');
 }
 function header() {
-  const names = { chat: ['与小途聊聊', '从一个念头，到一段旅程'], itinerary: ['我的行程', '把每一天，安排得刚刚好'], budget: ['旅行账本', '花得明白，玩得自在'], profile: ['旅行偏好', '你的旅途，由你定义'], tools: ['数据与连接', '知道每条信息来自哪里'] };
-  return '<header class="topbar"><div class="page-heading"><strong>' + names[state.view][0] + '</strong><span>' + names[state.view][1] + '</span></div><div class="top-actions">' + foodOrderEntry(state.statusError ? null : state.status) + '<span class="mode-badge ' + (state.statusError ? 'error' : '') + '"><i></i>' + (state.statusError ? '服务未连接' : state.status ? badge(state.status.mode) : '检查连接中') + '</span><button class="avatar" data-view="profile" aria-label="打开旅行偏好">' + icon('user') + '</button></div></header>';
+  const names = { chat: ['与小途聊聊', '从一个念头，到一段旅程'], itinerary: ['我的行程', '把每一天，安排得刚刚好'], budget: ['旅行账本', '花得明白，玩得自在'], profile: ['旅行偏好', '你的旅途，由你定义'], tools: ['数据与连接', '知道每条信息来自哪里'], 'food-order': ['外卖订单', '确认过的每一单，都查得到'] };
+  return '<header class="topbar"><div class="page-heading"><strong>' + names[state.view][0] + '</strong><span>' + names[state.view][1] + '</span></div><div class="top-actions">' + foodOrderEntry(state.statusError ? null : state.status) + '<span class="mode-badge ' + (state.statusError ? 'error' : '') + '"><i></i>' + (state.statusError ? '服务未连接' : state.status ? badge(state.status.mode, state.status.model) : '检查连接中') + '</span><button class="avatar" data-view="profile" aria-label="打开旅行偏好">' + icon('user') + '</button></div></header>';
 }
 function sidebar() {
   return '<aside class="sidebar"><a class="brand" href="#chat" aria-label="小途首页"><img src="/assets/logo-a.svg" alt="" width="42" height="42"><span>小途<small>随心出发 · XIAOTU</small></span></a><button class="new-chat" data-action="new" ' + (state.busy ? 'disabled' : '') + '>' + icon('plus') + ' 开始新旅程</button><nav aria-label="主要导航">' + [['chat','chat','与小途聊聊'],['itinerary','map','我的行程'],['budget','wallet','旅行账本'],['profile','user','旅行偏好']].map(([id,ico,name]) => '<button data-view="' + id + '" class="nav-item ' + (state.view === id ? 'active' : '') + '" ' + (state.view === id ? 'aria-current="page"' : '') + '>' + icon(ico) + '<span>' + name + '</span>' + (id === 'itinerary' && state.plan ? '<i class="nav-dot"></i>' : '') + '</button>').join('') + '</nav><div class="sidebar-note"><span class="eyebrow">下一站 · 不必匆忙</span><p>把时间留给风景，<br>把计划交给小途。</p><div class="mini-landscape" aria-hidden="true"></div></div><div class="sidebar-bottom"><button class="nav-item ' + (state.view === 'tools' ? 'active' : '') + '" data-view="tools">' + icon('plug') + '<span>数据与连接</span></button><a href="/logo-concepts.html" class="prototype-link">原型 v0.1 · Logo 待确认 ↗</a></div></aside>';
@@ -90,7 +93,7 @@ function messageList() {
       + '<span><strong>行程草案已整理</strong><small>查看每日安排与预算估算</small></span>' + icon('arrow') + '</button>' : '';
     return '<article class="message ' + (assistant ? 'assistant' : 'user') + '"><div class="message-avatar">'
       + (assistant ? avatar : '我') + '</div><div class="message-body"><div class="message-author">' + (assistant ? '小途' : '你')
-      + (m.mode ? '<span>' + badge(m.mode) + '</span>' : '') + '</div><div class="message-text">' + esc(m.content) + '</div>'
+      + (m.mode ? '<span>' + badge(m.mode, state.status?.model) + '</span>' : '') + '</div><div class="message-text">' + esc(m.content) + '</div>'
       + (assistant ? renderChatCards(m.cards, icon) : '') + planLink + '</div></article>';
   }).join('');
   const loading = state.busy ? '<article class="message assistant"><div class="message-avatar">' + avatar
@@ -224,15 +227,16 @@ function profile() {
 function toolsPage() {
   const s = state.status;
   const cards = [
-    ['chat','对话模型',s ? (s.mode === 'qwen' ? 'Qwen 已配置' : '本地演示') : '连接待确认', '真实调用与演示模式会分别标注。模型凭据仅在服务端配置，浏览器不会接收密钥。'],
+    ['chat','对话模型',s ? (s.mode === 'qwen' ? esc(s.model || '模型') + ' 已配置' : '本地演示') : '连接待确认', '真实调用与演示模式会分别标注。模型凭据仅在服务端配置，浏览器不会接收密钥。'],
     ['pin','腾讯地图 MCP',s ? (s.mapMcp ? '已配置 · 以实际查询为准' : '未配置') : '连接待确认', '地点、天气、逆地理编码和分段路线通过 MCP 获取。行程底图使用腾讯静态地图；照片、评分与评论只展示实际返回的内容。'],
     ['train','铁路与城际交通',s?.rail==='12306-mcp'?({ready:'已收到查询结果',unavailable:'上次查询失败',unchecked:'已配置 · 待查询'}[s.railState]||'已配置'):'未启用', '通过第三方 12306 MCP 查询直达车票、一次换乘、经停和车站。只查询，不代购。<br><button class="outline" data-action="rail-query">打开铁路查询</button>'],
+    ['fork','麦当劳 MCP 外卖',s ? (s.mcd === 'mcd-mcp' ? (s.mcdOrder ? '已配置 · 可下单' : '已配置 · 仅查询') : '未配置') : '连接待确认', '通过官方 MCP 查询菜单、可配送门店、优惠券和订单进度。下单需要在报价卡片上显式确认；创建的是账号里真实的待支付订单，支付由你自己完成。'],
     ['map','日历','ICS 文件导出', '确认出行日期后下载日历文件，自行导入日历应用。当前不会直接写入或修改你的线上日历。'],
   ];
   return '<div class="content-page"><div class="section-intro"><div><span class="eyebrow">CLEAR SOURCES, BETTER CHOICES</span><h1>有来源，才放心出发。</h1><p>已配置不等于每次查询成功。每次对话的来源结果会单独记录。</p></div><button class="outline" data-action="refresh-status">重新检查连接</button></div><div class="integration-grid">' + cards.map(([ico,title,status,desc]) => '<article class="panel integration"><div class="integration-icon">' + icon(ico) + '</div><h2>' + title + '</h2><span class="subtle-badge">' + status + '</span><p>' + desc + '</p></article>').join('') + '</div><section class="panel source-panel"><h2>最近一次对话的数据来源</h2>' + (state.sources.length ? state.sources.map(source => '<div class="source-row"><strong>' + esc(source.name) + '</strong><span class="source-status">' + ({live:'实时调用',demo:'演示数据',unavailable:'暂不可用'}[source.status] || '待核实') + '</span><p>' + esc(source.note) + '</p></div>').join('') : '<p class="muted">还没有查询记录。发起一次对话后，这里会显示实际使用的来源。</p>') + '</section><div class="page-actions"><a class="outline" href="https://www.12306.cn/" target="_blank" rel="noopener noreferrer">前往 12306 官方网站 ↗</a><button class="text-button danger" data-action="clear-all">清除本浏览器全部小途数据</button></div></div>';
 }
 function render() {
-  $('#app').innerHTML = sidebar() + '<div class="workspace">' + header() + (state.statusError ? '<div class="connection-error" role="alert">暂时无法连接本地服务，请确认服务已启动。<button data-action="refresh-status">重试</button></div>' : '') + '<main id="main" tabindex="-1" class="' + (state.view === 'chat' ? 'chat-layout' : 'page-main') + '">' + (state.view === 'chat' ? '<section class="chat-panel" aria-label="旅行规划对话"><div class="chat-scroll">' + (state.messages.length ? messageList() : emptyChat()) + '</div>' + composer() + '</section>' + overview() : state.view === 'itinerary' ? itinerary() : state.view === 'budget' ? budget() : state.view === 'profile' ? profile() : toolsPage()) + '</main></div><dialog id="dialog" aria-labelledby="dialog-title"></dialog>';
+  $('#app').innerHTML = sidebar() + '<div class="workspace">' + header() + (state.statusError ? '<div class="connection-error" role="alert">暂时无法连接本地服务，请确认服务已启动。<button data-action="refresh-status">重试</button></div>' : '') + '<main id="main" tabindex="-1" class="' + (state.view === 'chat' ? 'chat-layout' : 'page-main') + '">' + (state.view === 'chat' ? '<section class="chat-panel" aria-label="旅行规划对话"><div class="chat-scroll">' + (state.messages.length ? messageList() : emptyChat()) + '</div>' + composer() + '</section>' + overview() : state.view === 'itinerary' ? itinerary() : state.view === 'budget' ? budget() : state.view === 'profile' ? profile() : state.view === 'food-order' ? orderPage() : toolsPage()) + '</main></div><dialog id="dialog" aria-labelledby="dialog-title"></dialog>';
   bindForms();
   departureControl();
   const map = $('#itinerary-map');
@@ -324,7 +328,7 @@ async function sendMessage() {
   state.messages.push({role:'user',content:message}); state.input = ''; state.busy = true; render();
   requestController = new AbortController();
   let planned=false;
-  const timeout = setTimeout(() => requestController.abort('timeout'), 90000);
+  const timeout = setTimeout(() => requestController.abort('timeout'), CHAT_WAIT);
   try {
     const response = await fetch('/api/chat', { method:'POST', headers:{'Content-Type':'application/json'}, signal:requestController.signal, body:JSON.stringify({message,history,trip:state.trip,priorPlan:state.plan,profile:state.useProfile ? state.profile : {}}) });
     const data = await response.json();
@@ -333,7 +337,7 @@ async function sendMessage() {
     const updatingTrip = data.intent === 'plan';
     planned = updatingTrip && Array.isArray(data.plan?.days) && Array.isArray(data.plan?.budget);
     state.messages.push({role:'assistant',content:data.reply,mode:data.mode,hasPlan:planned,
-      cards:data.intent === 'lookup' ? data.cards : undefined});
+      cards:(data.intent === 'lookup' || data.intent === 'food') ? data.cards : undefined});
     if (updatingTrip && data.trip) state.trip = {...state.trip,...data.trip};
     if (planned) {
       travelUi?.controller?.abort();travelUi=undefined;state.plan = data.plan;state.planMode = data.mode;
@@ -344,7 +348,7 @@ async function sendMessage() {
     state.suggestion = data.profileSuggestion && Object.keys(data.profileSuggestion).length ? data.profileSuggestion : null;
     if (updatingTrip) persist();
   } catch (error) {
-    const content = requestController.signal.aborted ? (requestController.signal.reason === 'timeout' ? '这次等待超过了 90 秒。输入已保留，请稍后重试。' : '已停止本次生成。你可以修改输入后重新发送。') : '这次未能完成：' + (error.message || '请检查本地服务连接。');
+    const content = requestController.signal.aborted ? (requestController.signal.reason === 'timeout' ? '这次等待超过了 ' + CHAT_WAIT / 1000 + ' 秒。输入已保留，请稍后重试。' : '已停止本次生成。你可以修改输入后重新发送。') : '这次未能完成：' + (error.message || '请检查本地服务连接。');
     state.messages.push({role:'assistant',content,failed:true}); state.input = message;
   } finally { clearTimeout(timeout); state.busy = false; render(); $('#message')?.focus(); if(planned)autoDeparture(); }
 }
@@ -359,6 +363,79 @@ function calendarDialog() {
       state.trip.startDate = date; persist(); render(); toast('日历文件已下载，可导入你的日历应用。');
     } catch(error) { const el = $('#calendar-error'); if (el) el.textContent = error.message || '导出失败，请重试。'; button.disabled = false; }
   });
+}
+let foodFlight = null;
+async function foodRequest(path, body, timeout) {
+  const response = await fetch('/api/food/' + path, {method:'POST', credentials:'same-origin',
+    headers:{'content-type':'application/json'}, body:JSON.stringify(body), signal:AbortSignal.timeout(timeout)});
+  const data = await response.json();
+  if (!response.ok) throw new Error(typeof data.error === 'string' ? data.error : '请求失败。');
+  return data;
+}
+async function confirmFoodQuote(quoteId) {
+  // Single flight: double-clicks and re-confirmations must not create a second send.
+  if (!quoteId || foodFlight) return;
+  document.querySelectorAll('[data-action="food-confirm"]').forEach(el => { el.disabled = true; });
+  foodFlight = (async () => {
+    let receipt = null;
+    try {
+      receipt = await foodRequest('confirm', {quoteId, confirmed:true}, 90000);
+      state.messages.push({role:'assistant', content:receipt.message || '订单已创建。',
+        mode:state.status?.mode, cards:[{type:'food-order', ...receipt}]});
+    } catch (error) {
+      state.messages.push({role:'assistant', failed:true, content:'确认结果暂不明确：'
+        + (error.name === 'TimeoutError' ? '请求超时。' : error.message)
+        + ' 请查询原报价状态，不要重新报价或再次确认。'});
+    }
+    render();
+    if (receipt?.route) location.hash = receipt.route;
+  })();
+  try { await foodFlight; } finally { foodFlight = null; }
+}
+async function refreshFoodStatus(quoteId) {
+  if (!quoteId) return;
+  try {
+    const data = await foodRequest('status', {quoteId}, 15000);
+    if (state.view === 'food-order' && state.orderQuote === quoteId) state.orderDetail = {quoteId, ...data};
+    else state.messages.push({role:'assistant', content:data.message || '已查询原报价状态。',
+      mode:state.status?.mode, cards:[{type:'food-order', ...data}]});
+    render();
+  } catch (error) {
+    toast('查询失败：' + (error.name === 'TimeoutError' ? '请求超时，请稍后重试。' : error.message));
+  }
+}
+async function loadOrder(quoteId) {
+  state.orderDetail = {quoteId, loading:true};
+  render();
+  try {
+    const data = await foodRequest('status', {quoteId}, 15000);
+    state.orderDetail = {quoteId, ...data};
+  } catch (error) {
+    state.orderDetail = {quoteId, error:error.name === 'TimeoutError' ? '查询超时。' : error.message};
+  }
+  if (state.view === 'food-order' && state.orderQuote === quoteId) render();
+}
+function orderPage() {
+  const detail = state.orderDetail;
+  if (!detail || detail.loading) return '<div class="empty-page">' + icon('fork')
+    + '<h2>正在查询这一单…</h2><p>如果长时间没有结果，可稍后在聊天里查询原报价状态。</p></div>';
+  if (detail.error) return '<div class="empty-page">' + icon('fork') + '<h2>未能查询订单</h2><p>'
+    + esc(detail.error) + '</p><div class="page-actions"><button class="primary" data-action="food-status" data-food-quote="'
+    + esc(state.orderQuote) + '">重试查询</button><button class="outline" data-view="chat">返回聊天</button></div></div>';
+  return '<div class="content-page narrow"><div class="section-intro"><div><span class="eyebrow">CONFIRMED, NOT RE-ORDERED</span>'
+    + '<h1>外卖订单</h1><p>' + esc(detail.storeName || '麦当劳') + ' · 配送到 ' + esc(detail.addressText || '所选地址') + '</p></div></div>'
+    + renderChatCards([{type:'food-order', ...detail}], icon)
+    + '<div class="page-actions"><button class="outline" data-action="food-status" data-food-quote="'
+    + esc(state.orderQuote) + '">刷新状态</button><button class="text-button" data-view="chat">返回聊天</button></div></div>';
+}
+function applyHashRoute() {
+  const match = /^#\/order\/(quote_[a-f0-9]{32})$/.exec(location.hash || '');
+  if (!match) return;
+  state.view = 'food-order';
+  if (state.orderQuote !== match[1] || !state.orderDetail || state.orderDetail.quoteId !== match[1]) {
+    state.orderQuote = match[1];
+    void loadOrder(match[1]);
+  } else render();
 }
 function bindForms() {
   $('#chat-form')?.addEventListener('submit', e => {e.preventDefault(); sendMessage();});
@@ -394,6 +471,9 @@ document.addEventListener('click', event => {
     case 'marquee': state.marqueePaused=!state.marqueePaused; const track=$('.suggestion-track'); track?.classList.toggle('paused',state.marqueePaused); target.textContent=state.marqueePaused?'继续滚动':'暂停滚动'; target.setAttribute('aria-label',target.textContent+'建议'); break;
     case 'trip-details': tripDialog(); break;
     case 'food-demo': if(!state.statusError)openFoodOrder(state.status); break;
+    case 'food-confirm': void confirmFoodQuote(target.dataset.foodQuote); break;
+    case 'food-status': void refreshFoodStatus(target.dataset.foodQuote); break;
+    case 'open-order': location.hash = target.dataset.route; break;
     case 'rail-query': openRailDialog(state.trip,openDialog,esc); break;
     case 'close-dialog': $('#dialog').close(); break;
     case 'cancel': requestController?.abort('user'); break;
@@ -413,3 +493,5 @@ document.addEventListener('click', event => {
 });
 render();
 loadStatus();
+window.addEventListener('hashchange', applyHashRoute);
+applyHashRoute();

@@ -1,12 +1,14 @@
 from datetime import datetime
 import json
+import shutil
 
 from fastapi.testclient import TestClient
 import httpx
+import pytest
 
-from xiaotu.agent.model import Qwen
+from xiaotu.agent.model import ModelError, Qwen
 from xiaotu.app import create_app
-from xiaotu.config import ROOT, Settings, capabilities
+from xiaotu.config import ROOT, Settings, capabilities, load_settings
 from xiaotu.domain import CHINA
 from xiaotu.tools.rail import RailError
 
@@ -179,6 +181,7 @@ async def test_langchain_qwen_adapter_uses_configured_endpoint_only():
         assert request.headers["authorization"] == "Bearer FAKE"
         value = json.loads(request.content)
         assert value["response_format"] == {"type":"json_object"}
+        assert "reasoning_effort" not in value and "enable_thinking" not in value
         assert json.loads(value["messages"][1]["content"]) == {"message":"{试试}"}
         return httpx.Response(200, json={"choices":[{"message":{"content":"{\"intent\":\"chat\"}"}}]})
 
@@ -186,8 +189,50 @@ async def test_langchain_qwen_adapter_uses_configured_endpoint_only():
         assert await Qwen(Settings(base="https://llm.invalid/v1",key="FAKE"), client)("系统", {"message":"{试试}"}) == {"intent":"chat"}
 
 
+async def test_thinking_model_gets_headroom_and_names_truncated_output():
+    sent = []
+
+    async def mocked(request):
+        sent.append((json.loads(request.content), request.extensions["timeout"]["read"]))
+        return httpx.Response(200, json={"choices":[{"finish_reason":"length","message":{"content":""}}]})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(mocked)) as client:
+        thinking = Settings(base="https://llm.invalid/v1",key="FAKE",model="glm-5.3-flash",effort="high")
+        with pytest.raises(ModelError, match="截断.*调低 XIAOTU_MODEL_REASONING_EFFORT"):
+            await Qwen(thinking, client)("系统", {"message":"{试试}"}, tokens=3100, timeout=45)
+        body, read = sent.pop()
+        assert (body["reasoning_effort"], body["max_tokens"], read) == ("high", 9100, 105)
+        assert "enable_thinking" not in body
+        with pytest.raises(ModelError, match="截断.*设置 XIAOTU_MODEL_REASONING_EFFORT"):
+            await Qwen(Settings(base="https://llm.invalid/v1",key="FAKE"), client)("系统", {"message":"{试试}"}, tokens=3100, timeout=45)
+        body, read = sent.pop()
+        assert (body["max_tokens"], read) == (3100, 45) and "reasoning_effort" not in body
+
+
+def test_model_settings_prefer_neutral_names_and_keep_qwen_aliases(tmp_path):
+    for folder in ("config", "skills"):
+        shutil.copytree(ROOT / folder, tmp_path / folder)
+    names = dict(XIAOTU_MODEL_API_KEY="k1", XIAOTU_MODEL="glm-5.3-flash",
+                 XIAOTU_MODEL_BASE_URL="https://open.bigmodel.cn/api/coding/paas/v4",
+                 XIAOTU_MODEL_REASONING_EFFORT="High", XIAOTU_MODEL_THINKING="true",
+                 DASHSCOPE_API_KEY="k2", QWEN_MODEL="qwen-plus", QWEN_ENABLE_THINKING="false")
+    current = load_settings(tmp_path, names)
+    assert (current.key, current.model, current.base, current.effort, current.thinking) == (
+        "k1", "glm-5.3-flash", "https://open.bigmodel.cn/api/coding/paas/v4", "high", True)
+    legacy = load_settings(tmp_path, {k: v for k, v in names.items() if not k.startswith("XIAOTU_")})
+    assert (legacy.key, legacy.model, legacy.thinking, legacy.effort) == ("k2", "qwen-plus", False, "")
+    assert legacy.base == "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    with pytest.raises(ValueError, match="XIAOTU_MODEL_REASONING_EFFORT"):
+        load_settings(tmp_path, {"XIAOTU_MODEL_REASONING_EFFORT": "hgih"})
+    with browser(create_app(Settings(key="FAKE", model="glm-5.3-flash", rail_enabled=False))) as client:
+        state = client.get("/api/status").json()
+        assert (state["mode"], state["model"]) == ("qwen", "glm-5.3-flash")
+
+
 def test_capabilities_current_files():
     settings, texts, names = capabilities(ROOT)
     assert "get-tickets" in settings["12306"]["allowedTools"]
     assert "itinerary-planning" in names["plan"]
     assert "itinerary-planning" in texts["plan"]
+    assert "create-order" in settings["mcd"]["allowedTools"]
+    assert "mcd-delivery" in names["route"] and "mcd-delivery" in texts["route"]

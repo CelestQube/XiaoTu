@@ -19,8 +19,9 @@ from xiaotu.agent.model import ModelError, Qwen
 from xiaotu.agent import places
 from xiaotu.config import Settings, load_settings
 from xiaotu.domain import calendar_file, clean
-from xiaotu.food import FoodError, FoodService, HttpFoodProvider
+from xiaotu.food import FoodError, FoodService, HttpFoodProvider, McdFoodProvider
 from xiaotu.tools._common import ToolError
+from xiaotu.tools.mcd import McdService
 from xiaotu.tools.rail import RailService
 from xiaotu.tools.tencent import TencentMap
 
@@ -104,11 +105,23 @@ def receipt(result):
     state = {"placed":"succeeded", "confirming":"pending", "unknown":"pending", "pending":"pending",
              "awaiting_confirmation":"awaiting_confirmation", "rejected":"failed", "expired":"failed"}
     status = state.get(result.get("status"), "failed")
-    return {"quoteId": result["quoteId"], "status": status, "sandbox": True,
-            **{k: result[k] for k in ("operationId","orderId","message") if result.get(k)}}
+    value = {"quoteId": result["quoteId"], "status": status,
+             **{k: result[k] for k in ("operationId","orderId","message") if result.get(k)}}
+    if result.get("provider") == "mcd":
+        value["provider"] = "mcd"
+        value["sandbox"] = False
+        for key in ("storeName","addressText","items","productFen","deliveryFen","payFen",
+                    "packingFen","totalFen","orderStatus","payUrl","pickupCode","createTime","route",
+                    "amountMismatch","expiresAt"):
+            if result.get(key) is not None:
+                value[key] = result[key]
+    else:
+        value["sandbox"] = True
+    return value
 
 
-def create_app(config: Settings | None = None, *, maps=None, railway=None, model=None, food=None, clock=None):
+def create_app(config: Settings | None = None, *, maps=None, railway=None, model=None, food=None,
+               mcd=None, clock=None):
     config = config or load_settings()
     maps = maps or TencentMap(config.tencent_key, config.mcp.get("tencent-maps"))
     rail = railway or RailService(config.root, config.mcp.get("12306"), enabled=config.rail_enabled)
@@ -118,8 +131,17 @@ def create_app(config: Settings | None = None, *, maps=None, railway=None, model
     @asynccontextmanager
     async def lifespan(app):
         async with httpx.AsyncClient(follow_redirects=False) as client:
+            mcd_service = mcd or (McdService(config.mcd_token, config.mcp.get("mcd"))
+                                  if config.mcd_token else None)
+            app.state.mcd = mcd_service
+            app.state.mcd_food = None
+            if mcd_service is not None:
+                state_dir.mkdir(parents=True, exist_ok=True)
+                app.state.mcd_food = FoodService(state_dir / "food-mcd.sqlite3",
+                                                 provider=McdFoodProvider(mcd_service))
             app.state.chat = build_chat_graph(config, model or (Qwen(config, client) if config.key else None),
-                                             maps, rail, journey, proof)
+                                             maps, rail, journey, proof,
+                                             mcd=app.state.mcd, food=app.state.mcd_food)
             app.state.food, app.state.checkout = None, None
             try:
                 if config.food_enabled:
@@ -132,6 +154,8 @@ def create_app(config: Settings | None = None, *, maps=None, railway=None, model
                 else:
                     yield
             finally:
+                if mcd_service is not None:
+                    await mcd_service.close()
                 await maps.close()
                 await rail.close()
 
@@ -189,11 +213,15 @@ def create_app(config: Settings | None = None, *, maps=None, railway=None, model
 
     @app.get("/api/status")
     async def status():
+        mcd_ready = app.state.mcd is not None and app.state.mcd.configured
         return dict(backend="python", mode="qwen" if config.key or model else "demo",
+                    model=config.model if config.key or model else "",
                     map="tencent-mcp" if maps.configured else "unconfigured", mapMcp=maps.configured,
                     mapStatic=maps.static_configured, rail="12306-mcp" if rail.configured else "manual", railState=rail.status(),
                     calendar="ics", planPoi=True, journeyFlow=True, placeEditor=True, departureEditor=True,
-                    foodDemo=config.food_enabled)
+                    foodDemo=config.food_enabled,
+                    mcd="mcd-mcp" if mcd_ready else "unconfigured",
+                    mcdOrder=mcd_ready and config.mcd_order_enabled)
 
     @app.post("/api/chat")
     async def chat(request: Request):
@@ -202,10 +230,13 @@ def create_app(config: Settings | None = None, *, maps=None, railway=None, model
         if not isinstance(message, str) or not message.strip() or len(message) > 1600:
             raise InputError(400, "请输入 1–1600 字的行程需求。")
         async with slot("chat"):
-            if config.food_enabled and re.search(r"模拟外卖|测试外卖|外卖测试", message):
-                return {"mode": "qwen" if config.key or model else "demo", "intent": "chat",
-                        "reply": "外卖仅为模拟实验。请打开顶栏的「模拟外卖」，查看报价并手动确认；聊天不能直接下单。"}
-            return (await app.state.chat.ainvoke({"request": args}))["reply"]
+            actor, token = actor_of(request)
+            mcd_ready = app.state.mcd is not None and app.state.mcd.configured
+            if config.food_enabled and not mcd_ready and re.search(r"模拟外卖|测试外卖|外卖测试", message):
+                return browser_reply({"mode": "qwen" if config.key or model else "demo", "intent": "chat",
+                                      "reply": "外卖仅为模拟实验。请打开顶栏的「模拟外卖」，查看报价并手动确认；聊天不能直接下单。"}, token)
+            result = (await app.state.chat.ainvoke({"request": args, "actor": actor}))["reply"]
+            return browser_reply(result, token)
 
     @app.post("/api/travel")
     async def transport(request: Request):
@@ -257,6 +288,21 @@ def create_app(config: Settings | None = None, *, maps=None, railway=None, model
             raise InputError(404, "模拟外卖未启用。")
         return app.state.food
 
+    async def owning_food(actor: str, quote_id: str):
+        """Find the order service that owns this quote, with its current state.
+
+        Both ledgers are actor-scoped, so probing them cannot leak another
+        session's quote; a miss is a plain miss.
+        """
+        for service in (app.state.mcd_food, app.state.food):
+            if service is None:
+                continue
+            try:
+                return service, await service.status_for_quote(actor, quote_id)
+            except FoodError:
+                continue
+        raise InputError(404, "未找到本会话的报价。")
+
     @app.post("/api/food/menu")
     async def food_menu(request: Request):
         food = service()
@@ -281,18 +327,29 @@ def create_app(config: Settings | None = None, *, maps=None, railway=None, model
 
     @app.post("/api/food/status")
     async def food_status(request: Request):
-        food = service()
         args = StatusInput.model_validate(await body(request))
         actor, _ = actor_of(request)
-        return receipt(await food.status_for_quote(actor, args.quoteId))
+        _, current = await owning_food(actor, args.quoteId)
+        return receipt(current)
 
     @app.post("/api/food/confirm")
     async def food_confirm(request: Request):
-        food = service()
         args = ConfirmInput.model_validate(await body(request))
         if args.confirmed is not True:
-            raise InputError(400, "须明确确认模拟订单。")
+            raise InputError(400, "须明确确认订单。")
         actor, _ = actor_of(request)
+        service, current = await owning_food(actor, args.quoteId)
+        if service is app.state.mcd_food:
+            if not config.mcd_order_enabled:
+                raise InputError(403, "麦当劳下单未启用：在 .env 设置 XIAOTU_MCD_ORDER=true 后才能创建真实订单。")
+            if current["status"] in ("awaiting_confirmation", "pending", "confirming", "unknown"):
+                # The explicit validated request is the approval; the ledger is
+                # the durable state machine, so no interrupt graph is needed.
+                current = await service.confirm(actor, args.quoteId)
+            return receipt(current)
+        food = service
+        if current["status"] not in ("awaiting_confirmation", "pending"):
+            return receipt(current)
         thread = {"configurable": {"thread_id": f"{actor}:{args.quoteId}"}}
         async with locks[int(args.quoteId[-2:], 16) % len(locks)]:
             current = await food.status_for_quote(actor, args.quoteId)

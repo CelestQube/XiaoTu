@@ -20,9 +20,10 @@ if (!(Test-Path -LiteralPath .env)) { Copy-Item -LiteralPath .env.example -Desti
 
 | 能力 | 配置或用法 |
 | --- | --- |
-| Qwen 对话 | 本地 `.env` 填 `DASHSCOPE_API_KEY`、`QWEN_MODEL`、`QWEN_BASE_URL`。地址不含 `/chat/completions`，模型需支持 JSON 输出。未配置密钥时使用演示，不会在真实模型报错时悄悄改用样例。 |
+| 对话模型 | 本地 `.env` 填 `XIAOTU_MODEL_API_KEY`、`XIAOTU_MODEL`、`XIAOTU_MODEL_BASE_URL`（任何 OpenAI 兼容且支持 JSON 输出的 `/chat/completions`；旧的 `QWEN_*`/`DASHSCOPE_API_KEY` 变量名继续可用）。思考模型加 `XIAOTU_MODEL_REASONING_EFFORT=high` 等档位，例如智谱 Coding Plan：`glm-5.3-flash` + `https://open.bigmodel.cn/api/coding/paas/v4`。未配置密钥时使用演示，不会在真实模型报错时悄悄改用样例。 |
 | 腾讯地图 | `.env` 填 `TENCENT_MAP_API_KEY`，在服务商控制台确认 WebService 权限与配额。地点、定位、天气、路线通过 MCP；静态底图和缺失折线的按需补查使用同一 Key 调用腾讯 WebService。照片、评分、评论只展示上游实际返回的数据。 |
 | 12306 | 安装 npm 依赖后，从「数据与连接」独立查询，或在「我的行程 → 出发与抵达」调整起点、时间和换乘。结果只供参考，不登录、不抢票、不下单。余票与票价以[铁路 12306](https://www.12306.cn/)为准。 |
+| 麦当劳外卖 | `.env` 填 `MCD_MCP_TOKEN`（[open.mcd.cn](https://open.mcd.cn/mcp/doc) 控制台生成）；聊天里说「帮我点份外卖」即可查菜单、门店、优惠券、订单进度并下单。下单需再设 `XIAOTU_MCD_ORDER=true`，且每次都要在报价卡片上显式确认。创建的是个人账号里真实的**待支付**订单，支付由你自己完成，小途不代付。 |
 | 模拟外卖 | 默认关闭。先设 `$env:XIAOTU_FOOD_DEMO = 'true'` 再启动，从顶栏打开。只用模拟菜单、报价和订单，不联网找餐、不真实支付。 |
 
 试着发送「从上海出发去杭州玩 3 天，两人，总预算 1800 元」，然后在行程里查看地图、调整地点或确认下载 ICS。未填写的查询日期默认为北京时间今天，不写成已确认的行程日期；定位需要浏览器授权，精确坐标不会持久保存或发送给 Qwen。预算是估算，日历是文件下载，不自动写入第三方日历。
@@ -34,5 +35,6 @@ if (!(Test-Path -LiteralPath .env)) { Copy-Item -LiteralPath .env.example -Desti
 - [开发指南](docs/development.md)：目录、接口、验收与测试。
 - [能力管理](docs/capabilities.md)：如何配置 MCP、添加业务 Skill。
 - [前端设计](docs/design.md)：页面、交互、本地数据及 Logo 评审。
+- [麦当劳外卖](docs/mcd-delivery.md)：意图分支、弱网下单网关与快照对账。
 - [弱网实验](docs/reliable-tool-experiment.md)：模拟订单、故障注入和可复现对照。
 - [路线图](docs/roadmap.md)与[开发守则](CONTRIBUTING.md)：迭代顺序、GitHub 协作、分工和合并门禁。

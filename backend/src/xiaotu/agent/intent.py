@@ -15,15 +15,47 @@ EXPLICIT_ACTION = re.compile(r"(?:请|帮我|给我|替我|能不能|可以)\s*(
 NO_PLAN = re.compile(r"^(?:先)?(?:不(?:用|必|要)?|别|暂时不|暂不)(?:帮我)?(?:规划|安排|调整|修改|改动|重排)")
 PLAN = re.compile(
     r"(?:安排|制定|设计|生成|规划|重排|调整|修改|更改|更新|优化|排一下|重新排)[^。！？?!]{0,18}(?:行程|旅行计划|出游计划|旅游计划|日游|每天)"
+    r"|(?:请|能不能|可以)?(?:帮我|给我|为我们|替我)?(?:规划|安排|制定|排一下)(?:一下)?[。！!？?～吗\s]*\Z"
     r"|(?:行程|第[一二三四五六七两1-7]天|(?:首|末)日)[^。！？?!]{0,18}(?:改成|换成|改到|挪到|替换|删掉|取消|调整一下|放松一点|多安排|加上|加入|改一下)"
     r"|(?:加入|加进|加入到|放进|排进)[^。！？?!]{0,12}行程"
-    r"|(?:^|[，,。]|(?:我)?(?:想|要|准备|打算)[^。！？?!]{0,12}|从[\u4e00-\u9fff]{2,10}|出发)去[\u4e00-\u9fff]{2,12}(?:玩|旅游|旅行|出游|[一两二三四五六七1-7](?:天|日游))"
+    r"|(?:^|[，,。]|(?:我)?(?:想|要|准备|打算|计划|安排)[^。！？?!]{0,12}|从[\u4e00-\u9fff]{2,10}|出发)去[\u4e00-\u9fff]{2,12}(?:玩|旅游|旅行|出游|[一两二三四五六七1-7](?:天|日游))"
 )
 GOTO = re.compile(r"^(?:我)?(?:想|准备|打算)?去(" + "|".join(demo.KNOWN) + r")(?:市)?[。！!\s]*$")
 WEATHER = re.compile(r"天气|预报|气温|温度|下雨|会下雪|降温|有雨|有风|台风")
 RAIL = re.compile(r"高铁|动车|火车|铁路|列车|车票|余票|换乘|经停|三字码|12306", re.I)
 READ = re.compile(r"查|看看|有(?:没有|票|哪些|什么|几|高铁|动车|火车|列车)|还有|多少钱|票价|余票|车次|几点|经停|三字码|中转")
 DATE_ONLY = re.compile(r"(?:就|查|看)?\s*(?:今天|明天|后天|大后天|20[0-9]{2}[-/][0-9]{1,2}[-/][0-9]{1,2})[吧呢。？！!？?\s]*")
+
+FOOD = re.compile(r"麦当劳|麦乐送|麦麦|巨无霸|麦辣|板烧|麦旋风|麦乐鸡|圆筒|外卖|点餐|点份|来一单|订餐")
+FOOD_CHAT = re.compile(r"哪个好吃|哪家好吃|哪个划算|哪个健康|值得(?:吃|去)吗|好不好吃|和肯德基|比(?:较好|一下)|什么区别|热量|发胖")
+FOOD_ORDER = re.compile(r"(?:帮我|给我|给我来|来|点|要|订|安排)\s*[一两二三四五六七八九十1-9]?\s*[份个套]?[^。！？?!]{0,14}(?:外卖|套餐|餐|单|堡|可乐|薯条)|(?:下单|点单|确认下单|安排上)")
+FOOD_ACTIONS = ("menu", "stores", "addresses", "coupons", "orders", "order")
+# Replies from the food branch itself; a short answer to them continues it.
+FOOD_REPLY = re.compile(r"^(?:请选择收货地址|想吃什么|已选|以下|这是|麦当劳|报价|这些|先选|好的)")
+
+
+def food_request(message, history):
+    """Return the food action for this turn, or "" when the message is not food."""
+    if FOOD_CHAT.search(message) or GENERAL.search(message):
+        return ""
+    if not FOOD.search(message):
+        # A short choice answering our own food question continues the branch.
+        if (history and history[-1]["role"] == "assistant"
+                and FOOD_REPLY.match(history[-1]["content"]) and len(message) <= 40
+                and re.search(r"第[一二三四五六七八九十1-9]个?|就(?:要|用|选)|换一?家|就它|可以了|巨无霸|麦辣|板烧|薯条|可乐|麦乐鸡|派|咖啡|套餐|汉堡|冰淇淋|蛋挞", message)):
+            return "order"
+        return ""
+    if re.search(r"门店|哪家店|可配送|配送范围", message):
+        return "stores"
+    if re.search(r"订单|到哪|送到哪|进度|取消", message):
+        return "orders"
+    if re.search(r"收货地址|地址列表|送到哪里", message):
+        return "addresses"
+    if re.search(r"优惠券|有什么券|用券|麦麦省", message):
+        return "coupons"
+    if re.search(r"菜单|有什么|卖什么|都有什么|吃些什么|多少钱", message) and not FOOD_ORDER.search(message):
+        return "menu"
+    return "order"
 
 
 def is_social(message):
@@ -78,6 +110,8 @@ def resolve_route(message, history, previous, proposal):
         return "chat", message, {}
     proposal = obj(proposal)
     guess, query = proposal.get("intent"), obj(proposal.get("query"))
+    if action := food_request(message, history):
+        return "food", message, {"kind": "food", "foodAction": action}
     if DATE_ONLY.fullmatch(message) and (prior := clarification(history, "请补充")) and RAIL.search(prior):
         text = prior + "，" + message
         return "lookup", text, {**(query if query.get("kind") == "rail" else {}), "kind": "rail"}
@@ -95,4 +129,9 @@ def resolve_route(message, history, previous, proposal):
     if (guess == "lookup" and query.get("kind") in ("weather", "rail", "place", "transport")
             and not (GENERAL.search(message) or re.search(r"什么是|是什么|有什么区别|什么意思", message))):
         return "lookup", message, query
+    # Less formulaic food phrasings may be classified by Qwen; the action
+    # must still be one of the known branches and not a comparison question.
+    if (guess == "food" and query.get("kind") == "food" and query.get("foodAction") in FOOD_ACTIONS
+            and not (FOOD_CHAT.search(message) or GENERAL.search(message))):
+        return "food", message, {"kind": "food", "foodAction": query["foodAction"]}
     return "chat", message, {}

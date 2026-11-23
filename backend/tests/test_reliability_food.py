@@ -11,7 +11,7 @@ import uvicorn
 from xiaotu.execution import ReliableExecutor, ToolRejected, ToolTransient, ToolUncertain
 from xiaotu.food import DEMO_ADDRESS, FoodError, FoodService, HttpFoodProvider
 from xiaotu.food.benchmark import STRATEGIES, drops_response, run_case
-from xiaotu.food.provider import SandboxMerchant
+from xiaotu.food.provider import SandboxMerchant, verify_sandbox_receipt
 from xiaotu.food.sandbox import create_app
 
 
@@ -121,6 +121,10 @@ def test_sandbox_http_contract_deduplicates_and_checks_same_key_different_body(t
 def test_unknown_looks_up_original_operation_after_restart_and_cannot_resubmit(tmp_path):
     class UnknownAfterCommit:
         supports_idempotent_create = True
+        supports_order_snapshot = False
+        sandbox = True
+        reconcile_timeout = 0.8
+        verify_receipt = staticmethod(verify_sandbox_receipt)
 
         def __init__(self, merchant):
             self.merchant, self.creates, self.available = merchant, 0, False
@@ -130,10 +134,16 @@ def test_unknown_looks_up_original_operation_after_restart_and_cannot_resubmit(t
             await self.merchant.create_order(actor, operation_id, details)
             raise ToolTransient("network")
 
-        async def find_order(self, actor, operation_id):
+        async def find_order(self, actor, operation_id, details=None, snapshot=None):
             if not self.available:
                 raise ToolTransient("network")
             return await self.merchant.find_order(actor, operation_id)
+
+        async def recent_orders(self, actor):
+            return None
+
+        async def live_order(self, order_id):
+            return None
 
     async def scenario():
         merchant = SandboxMerchant(tmp_path / "vendor.sqlite3")
@@ -155,6 +165,10 @@ def test_unknown_looks_up_original_operation_after_restart_and_cannot_resubmit(t
 def test_restart_during_in_flight_commit_recovers_same_order(tmp_path):
     class CommitThenCancel:
         supports_idempotent_create = True
+        supports_order_snapshot = False
+        sandbox = True
+        reconcile_timeout = 0.8
+        verify_receipt = staticmethod(verify_sandbox_receipt)
 
         def __init__(self, merchant):
             self.merchant, self.creates = merchant, 0
@@ -164,8 +178,14 @@ def test_restart_during_in_flight_commit_recovers_same_order(tmp_path):
             await self.merchant.create_order(actor, operation_id, details)
             raise asyncio.CancelledError
 
-        async def find_order(self, actor, operation_id):
+        async def find_order(self, actor, operation_id, details=None, snapshot=None):
             return await self.merchant.find_order(actor, operation_id)
+
+        async def recent_orders(self, actor):
+            return None
+
+        async def live_order(self, order_id):
+            return None
 
     async def scenario():
         now = 1_800_001_234.0

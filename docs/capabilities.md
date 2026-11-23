@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | MCP：连接真实数据与操作 | `config/mcp_settings.json` | 12306 查车票、腾讯地图核实地点和查天气 |
 | Skill：告诉小途在什么阶段、按什么工作方法处理 | `config/skills.json` 和 `skills/<名称>/SKILL.md` | 减少当天来回跨区，没确认抵达时间就不安排必须提前预约的项目 |
-| 私有凭据 | 根目录 `.env`（不要提交） | `TENCENT_MAP_API_KEY`、`DASHSCOPE_API_KEY` |
+| 私有凭据 | 根目录 `.env`（不要提交） | `TENCENT_MAP_API_KEY`、`XIAOTU_MODEL_API_KEY`（旧名 `DASHSCOPE_API_KEY`）、`MCD_MCP_TOKEN` |
 
 ## 现有 MCP 怎么安装、怎么关闭
 
@@ -14,6 +14,7 @@
 | --- | --- | --- |
 | `tencent-maps` | 远程 Streamable HTTP。后端连接腾讯官方 `https://mcp.map.qq.com/mcp`，按需调用地点、地理编码、天气和路线工具。 | 不在本机安装服务。把有权限的腾讯 WebService Key 填入 `.env`，继续沿用现有 Key。 |
 | `12306` | 本地 stdio。首次铁路查询才由 Python MCP 客户端启动 Node 子进程；无需铁路账号或额外监听端口。 | `npm.cmd ci --ignore-scripts` 安装锁定的 `12306-mcp@0.3.10` 及其依赖。不单独启动 Node 服务。 |
+| `mcd` | 远程 Streamable HTTP。连接麦当劳官方 `https://mcp.mcd.cn`，查询走对话分支，`create-order` 只经可靠网关执行。 | 在 [open.mcd.cn](https://open.mcd.cn/mcp/doc) 控制台生成 MCP Token 填入 `.env` 的 `MCD_MCP_TOKEN`；真实下单另需 `XIAOTU_MCD_ORDER=true`。Token 绑定个人账号，条款为个人非商业用途。 |
 
 配置结构借鉴了 [CodeArts 码道 IDE 的 MCP 管理](https://support.huaweicloud.com/usermanual-codeartsagent/codeartsagent_ug_0010.html)，但文件与能力不是互通的。项目中若已有 `.codeartsdoer/mcp/mcp_settings.json`，它是码道自己的配置，修改它不会改变小途的运行。
 

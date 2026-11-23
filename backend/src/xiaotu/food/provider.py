@@ -22,16 +22,39 @@ QUOTE = re.compile(r"quote_[a-f0-9]{32}\Z")
 
 class FoodProvider(Protocol):
     supports_idempotent_create: bool
+    supports_order_snapshot: bool
+    reconcile_timeout: float
 
     async def create_order(self, actor: str, operation_id: str, details: dict) -> dict: ...
 
-    async def find_order(self, actor: str, operation_id: str) -> dict | None: ...
+    async def find_order(self, actor: str, operation_id: str, details: dict,
+                         snapshot: list[str] | None) -> dict | None: ...
+
+    async def recent_orders(self, actor: str) -> list[str] | None: ...
+
+    def verify_receipt(self, receipt: dict, operation_id: str, details: dict) -> str: ...
+
+    async def live_order(self, order_id: str) -> dict | None: ...
+
+
+def verify_sandbox_receipt(receipt: dict, operation_id: str, details: dict) -> str:
+    """Require the sandbox receipt to echo the stable key and quoted amount."""
+    if (not isinstance(receipt, dict) or receipt.get("sandbox") is not True or
+            receipt.get("operationId") != operation_id or type(receipt.get("totalFen")) is not int or
+            receipt.get("totalFen") != details["totalFen"] or not isinstance(receipt.get("orderId"), str) or
+            not ORDER.fullmatch(receipt["orderId"])):
+        raise ToolUncertain("invalid_receipt")
+    return receipt["orderId"]
 
 
 class SandboxMerchant:
     """Fake seller only. Its own transaction defines the side-effect boundary."""
 
     supports_idempotent_create = True
+    supports_order_snapshot = False
+    reconcile_timeout = 0.8
+    sandbox = True
+    verify_receipt = staticmethod(verify_sandbox_receipt)
 
     def __init__(self, path: str | Path):
         self.db = Database(path)
@@ -66,7 +89,8 @@ class SandboxMerchant:
                        (actor, operation_id, receipt["orderId"], digest, canonical(receipt)))
             return receipt
 
-    async def find_order(self, actor: str, operation_id: str) -> dict | None:
+    async def find_order(self, actor: str, operation_id: str, details: dict = None,
+                         snapshot: list[str] | None = None) -> dict | None:
         return await asyncio.to_thread(self._find, actor, operation_id)
 
     def _find(self, actor: str, operation_id: str) -> dict | None:
@@ -74,6 +98,12 @@ class SandboxMerchant:
             row = db.execute("SELECT receipt FROM sandbox_orders WHERE actor = ? AND operation_id = ?",
                              (actor, operation_id)).fetchone()
             return json.loads(row["receipt"]) if row is not None else None
+
+    async def recent_orders(self, actor: str) -> list[str] | None:
+        return None
+
+    async def live_order(self, order_id: str) -> dict | None:
+        return None
 
     def count(self) -> int:
         with self.db.connection() as db:
@@ -84,6 +114,10 @@ class HttpFoodProvider:
     """A loopback-only client for the simulated seller; no real orders or credentials."""
 
     supports_idempotent_create = True
+    supports_order_snapshot = False
+    reconcile_timeout = 0.8
+    sandbox = True
+    verify_receipt = staticmethod(verify_sandbox_receipt)
 
     def __init__(self, base_url: str, *, client: httpx.AsyncClient | None = None):
         try:
@@ -132,8 +166,15 @@ class HttpFoodProvider:
                                     json={"actor": actor, "details": details})
         return self._parse(response)
 
-    async def find_order(self, actor: str, operation_id: str) -> dict | None:
+    async def find_order(self, actor: str, operation_id: str, details: dict = None,
+                         snapshot: list[str] | None = None) -> dict | None:
         response = await self._send("GET", "/orders/" + operation_id, params={"actor": actor})
         if response.status_code == 404:
             return None
         return self._parse(response)
+
+    async def recent_orders(self, actor: str) -> list[str] | None:
+        return None
+
+    async def live_order(self, order_id: str) -> dict | None:
+        return None

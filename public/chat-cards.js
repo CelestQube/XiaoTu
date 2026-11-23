@@ -85,7 +85,115 @@ function rail(card, icon) {
     + '<footer class="chat-card-foot"><span>' + esc(card.source || '铁路 12306 · 第三方 MCP') + esc(observedAt(card.checkedAt)) + '</span>'
     + '<a href="https://www.12306.cn/" target="_blank" rel="noopener noreferrer">去铁路 12306 核实 ↗</a></footer></section>';
 }
+const fen = value => Number.isInteger(value) && value >= 0
+  ? '¥' + (value / 100).toFixed(2) : '价格未返回';
+const foodStatus = value => ({succeeded: '已创建（待支付）', pending: '处理中，请勿重复操作', failed: '未创建',
+  awaiting_confirmation: '等待确认', unknown: '结果待核对，请勿重新下单'}[value] || '状态未知');
+function foodRows(card, key, render, empty) {
+  const list = rows(card[key]);
+  return list.length
+    ? '<ul class="food-item-list">' + list.slice(0, 12).map(render).join('') + '</ul>'
+    : '<p class="chat-card-empty">' + (empty || '没有查到结果。') + '</p>';
+}
+function foodMenu(card, icon) {
+  const groups = rows(card.categories);
+  return '<section class="chat-card chat-card-food" aria-label="麦当劳菜单">'
+    + head(icon('fork'), '麦当劳 · 麦乐送菜单', card.storeName || '菜单')
+    + (groups.length ? groups.map(group => '<div class="food-group"><strong class="food-group-name">'
+      + esc(group.name) + '</strong><ul class="food-item-list">'
+      + rows(group.items).slice(0, 12).map(item => '<li><span>' + esc(item.name) + '</span><b>' + fen(item.priceFen)
+        + (item.originalPriceFen ? ' <s>' + fen(item.originalPriceFen) + '</s>' : '') + '</b></li>').join('')
+      + '</ul></div>').join('') : '<p class="chat-card-empty">没有查到可售餐品。</p>')
+    + '<footer class="chat-card-foot">' + esc(card.source || '麦当劳 MCP') + ' · 说「来一份巨无霸」即可报价</footer></section>';
+}
+function foodTotals(card) {
+  return '<dl class="food-totals"><div><dt>餐品</dt><dd>' + fen(card.productFen) + '</dd></div>'
+    + '<div><dt>配送费</dt><dd>' + fen(card.deliveryFen) + '</dd></div>'
+    + (Number.isInteger(card.packingFen) && card.packingFen > 0
+      ? '<div><dt>打包费</dt><dd>' + fen(card.packingFen) + '</dd></div>' : '')
+    + (Number.isInteger(card.discountFen) ? '<div><dt>优惠</dt><dd>-' + fen(card.discountFen) + '</dd></div>' : '')
+    + '<div class="food-pay"><dt>应付</dt><dd>' + fen(Number.isInteger(card.totalFen) ? card.totalFen : card.payFen)
+    + '</dd></div></dl>';
+}
+function foodQuote(card, icon) {
+  return '<section class="chat-card chat-card-food" aria-label="麦当劳外卖报价">'
+    + head(icon('fork'), '麦当劳 · 报价单', card.storeName || '外卖报价')
+    + '<p class="chat-card-sub">配送到 ' + esc(card.addressText || '所选收货地址') + '</p>'
+    + foodRows(card, 'items', item => '<li><span>' + esc(item.name) + ' × ' + esc(item.quantity)
+      + '</span><b>' + fen(item.priceFen * item.quantity) + '</b></li>', '报价未包含餐品明细。')
+    + foodTotals(card)
+    + (typeof card.expiresAt === 'string' && Number.isFinite(Date.parse(card.expiresAt))
+      ? '<p class="chat-card-sub">报价到期：' + esc(new Date(card.expiresAt).toLocaleString('zh-CN', {hour12: false})) + '</p>' : '')
+    + '<div class="food-actions">'
+    + (card.orderable === false ? '' : '<button class="primary small" data-action="food-confirm" data-food-quote="'
+      + esc(card.quoteId) + '">确认下单</button>')
+    + '<button class="outline small" data-action="food-status" data-food-quote="' + esc(card.quoteId)
+    + '">查询状态</button></div>'
+    + '<footer class="chat-card-foot">确认后才会向麦当劳提交订单；创建的是真实待支付订单，支付由你自己完成。</footer></section>';
+}
+function foodOrder(card, icon) {
+  return '<section class="chat-card chat-card-food" aria-label="麦当劳订单">'
+    + head(icon('fork'), '麦当劳 · 订单', card.storeName || '订单详情')
+    + '<p class="food-order-status">' + esc(foodStatus(card.status))
+    + (card.orderStatus ? ' · ' + esc(card.orderStatus) : '') + '</p>'
+    + (card.amountMismatch ? '<p class="food-warning">注意：实际金额与报价不一致（' + fen(card.totalFen)
+      + '）。请核对后再支付，也可以在麦当劳 App 取消。</p>' : '')
+    + (rows(card.items).length ? foodRows(card, 'items', item => '<li><span>' + esc(item.name) + ' × '
+      + esc(item.quantity) + '</span></li>') : '')
+    + foodTotals(card)
+    + (card.orderId ? '<p class="food-order-id">订单号 <code>' + esc(card.orderId) + '</code></p>' : '')
+    + (card.pickupCode ? '<p class="food-order-id">取餐码 <code>' + esc(card.pickupCode) + '</code></p>' : '')
+    + '<div class="food-actions">'
+    + (typeof card.payUrl === 'string' && /^https:\/\//.test(card.payUrl)
+      ? '<a class="primary small" href="' + esc(card.payUrl) + '" target="_blank" rel="noopener noreferrer">去支付 ↗</a>' : '')
+    + (typeof card.route === 'string' && card.route.startsWith('#/order/')
+      ? '<button class="outline small" data-action="open-order" data-route="' + esc(card.route) + '">查看订单详情</button>' : '')
+    + (card.quoteId ? '<button class="text-button" data-action="food-status" data-food-quote="' + esc(card.quoteId)
+      + '">刷新状态</button>' : '')
+    + '</div><footer class="chat-card-foot">支付在麦当劳自己的页面完成，这里不会代你支付；订单进度以麦当劳 App 为准。</footer></section>';
+}
+function foodAddresses(card, icon) {
+  return '<section class="chat-card chat-card-food" aria-label="麦当劳收货地址">'
+    + head(icon('pin'), '麦当劳 · 收货地址', '账号内的地址')
+    + foodRows(card, 'addresses', row => '<li><span>' + esc(row.address)
+      + (row.addressDetail ? '（' + esc(row.addressDetail) + '）' : '') + '</span></li>', '账号里还没有收货地址。')
+    + '<footer class="chat-card-foot">不含联系方式；新增地址请在麦当劳 App 内完成。</footer></section>';
+}
+function foodStores(card, icon) {
+  return '<section class="chat-card chat-card-food" aria-label="麦当劳可配送门店">'
+    + head(icon('pin'), '麦当劳 · 可配送门店', card.addressText || '可配送门店')
+    + foodRows(card, 'stores', row => '<li><span><strong>' + esc(row.storeName) + '</strong>'
+      + (row.address ? '<br>' + esc(row.address) : '')
+      + '<small>' + esc(row.businessStatus || '')
+      + (row.businessStartTime ? ' ' + esc(row.businessStartTime) + '–' + esc(row.businessEndTime || '') : '')
+      + '</small></span></li>', '这个地址暂无可配送门店。')
+    + '<footer class="chat-card-foot">' + esc(card.source || '麦当劳 MCP') + '</footer></section>';
+}
+function foodCoupons(card, icon) {
+  return '<section class="chat-card chat-card-food" aria-label="麦当劳优惠券">'
+    + head(icon('wallet'), '麦当劳 · 优惠券', card.storeName || '当前门店')
+    + foodRows(card, 'coupons', row => '<li><span>' + esc(row.title)
+      + (row.description ? '<small>' + esc(row.description) + '</small>' : '') + '</span></li>', '暂无可用优惠券。')
+    + '<footer class="chat-card-foot">本版下单暂不自动用券，可在麦当劳 App 核实用券条件。</footer></section>';
+}
+function foodOrders(card, icon) {
+  return '<section class="chat-card chat-card-food" aria-label="麦当劳最近订单">'
+    + head(icon('fork'), '麦当劳 · 最近订单', '账号内的订单')
+    + foodRows(card, 'orders', row => '<li><span><strong>' + esc(row.orderStatus || '状态未返回') + '</strong> · '
+      + esc(row.storeName || '') + '<small>' + esc(row.createTime || '') + '</small></span>'
+      + (Number.isInteger(row.totalFen) ? '<b>' + fen(row.totalFen) + '</b>' : '') + '</li>', '最近没有订单。')
+    + '<footer class="chat-card-foot">订单进度以麦当劳 App 为准。</footer></section>';
+}
 export function renderChatCards(cards, icon = () => '') {
   return rows(cards).slice(0, 3).map(card =>
-    card.type === 'weather' ? weather(card, icon) : card.type === 'rail' ? rail(card, icon) : '').join('');
+    card.type === 'weather' ? weather(card, icon)
+    : card.type === 'rail' ? rail(card, icon)
+    : card.type === 'food-menu' ? foodMenu(card, icon)
+    : card.type === 'food-quote' ? foodQuote(card, icon)
+    : card.type === 'food-order' ? foodOrder(card, icon)
+    : card.type === 'food-addresses' ? foodAddresses(card, icon)
+    : card.type === 'food-stores' ? foodStores(card, icon)
+    : card.type === 'food-coupons' ? foodCoupons(card, icon)
+    : card.type === 'food-orders' ? foodOrders(card, icon)
+    : '').join('');
 }
