@@ -115,6 +115,9 @@ def mcd_quote_details(raw) -> dict:
                "payFen": amounts["payFen"]}
     if be_code:
         details["beCode"] = be_code
+    packing = raw.get("packingFen")
+    if type(packing) is int and 0 < packing <= MAX_FEN:
+        details["packingFen"] = packing
     discount = raw.get("discountFen")
     if type(discount) is int and 0 <= discount <= amounts["productFen"]:
         details["discountFen"] = discount
@@ -139,6 +142,10 @@ def _mcd_output(row: dict) -> dict:
              "items": details["items"], "productFen": details["productFen"],
              "deliveryFen": details["deliveryFen"], "payFen": details["payFen"],
              "expiresAt": details.get("expiresAt", ""), "route": "#/order/" + row["quote_id"]}
+    if "packingFen" in details:
+        value["packingFen"] = details["packingFen"]
+    if "discountFen" in details:
+        value["discountFen"] = details["discountFen"]
     if row["order_id"]:
         value["orderId"] = row["order_id"]
     return value

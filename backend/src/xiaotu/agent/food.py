@@ -16,7 +16,10 @@ from xiaotu.tools.mcd import MCD_SOURCE, McdError, McdRefused
 NUM = {**dict(zip("一二三四五六七八九十", range(1, 11))), "两": 2}
 ORDINAL = re.compile(r"(?:第|用|选)\s*([一两二三四五六七八九十1-9])\s*(?:个|号|家)?")
 COUNT = r"([一两二三四五六七八九十1-9]|10)"
-CORE_SUFFIX = re.compile(r"(?:中|大|小)?(?:套餐|杯|盒|份|块)\Z")
+# Menu cores strip trailing "(5块)" / "5块" / "套餐" / "中杯" so "麦乐鸡" can match 麦乐鸡5块.
+CORE_SUFFIX = re.compile(r"(?:[(（][^()（）]*[)）])?[0-9０-９]*(?:中|大|小)?(?:套餐|杯|盒|份|块)\Z")
+# Colloquial drink names; longer aliases win so 无糖可乐 never becomes a regular cola.
+ALIASES = {"无糖可乐": "无糖可口可乐", "可乐": "可口可乐"}
 MEAL_DISCOUNT = "真实订单：确认后才会提交，支付需你自己在麦当劳完成。"
 
 
@@ -50,6 +53,29 @@ def _core(name: str) -> str:
     return CORE_SUFFIX.sub("", name) or name
 
 
+def _dedupe_overlap(message: str, picks: dict[str, dict]) -> None:
+    """Drop shorter names whose every mention sits inside a longer picked name."""
+    names = [pick["name"] for pick in picks.values()]
+    for name in list(names):
+        spans = [m.span() for m in re.finditer(re.escape(name), message)]
+        for other in names:
+            if other == name or len(other) <= len(name):
+                continue
+            covered = [m.span() for m in re.finditer(re.escape(other), message)]
+            spans = [s for s in spans if not any(o[0] <= s[0] and s[1] <= o[1] for o in covered)]
+        if not spans:
+            for pick in list(picks.values()):
+                if pick["name"] == name:
+                    picks.pop(pick["productCode"], None)
+
+
+def _plain(rows):
+    """Pick the plain product over its combo: exact-stem, then un-suffixed, then shortest."""
+    return next(((code, meal) for code, meal in rows if "套餐" not in meal["name"]
+                 and "(" not in meal["name"] and "（" not in meal["name"]),
+                min(rows, key=lambda row: len(row[1]["name"])))
+
+
 def _match_items(message: str, menu: dict) -> list[dict]:
     """Match spoken dish names against the menu; exact names win over cores."""
     picks: dict[str, dict] = {}
@@ -57,24 +83,42 @@ def _match_items(message: str, menu: dict) -> list[dict]:
         name = meal["name"]
         if name in message:
             picks[code] = {"productCode": code, "name": name, "priceFen": meal["priceFen"]}
+    if picks:
+        _dedupe_overlap(message, picks)
     if not picks:
         cores = {}
         for code, meal in menu["meals"].items():
             stem = _core(meal["name"])
             if stem and stem in message:
                 cores.setdefault(stem, []).append((code, meal))
+        for alias, target in sorted(ALIASES.items(), key=lambda kv: -len(kv[0])):
+            if alias not in message:
+                continue
+            # A longer alias already claimed this family (无糖可乐 vs 可乐).
+            if any(alias != other and alias in other and other in message for other in ALIASES):
+                continue
+            rows = [(code, meal) for code, meal in menu["meals"].items()
+                    if _core(meal["name"]) == target]
+            if rows:
+                code, meal = _plain(rows)
+                picks[code] = {"productCode": code, "name": meal["name"],
+                               "priceFen": meal["priceFen"], "spoken": alias}
         for stem, rows in cores.items():
-            # Prefer the plain product over its combo when both match.
-            plain = next(((code, meal) for code, meal in rows if meal["name"] == stem), rows[0])
-            picks[plain[0]] = {"productCode": plain[0], "name": plain[1]["name"],
-                               "priceFen": plain[1]["priceFen"]}
+            code, meal = _plain(rows)
+            picks[code] = {"productCode": code, "name": meal["name"],
+                           "priceFen": meal["priceFen"]}
     out = []
     for pick in picks.values():
         quantity = 1
-        if before := re.search(COUNT + r"\s*份?" + re.escape(pick["name"]), message):
-            quantity = _count(before[1])
-        elif after := re.search(re.escape(pick["name"]) + r"\s*(?:x|×)?\s*" + COUNT, message):
-            quantity = _count(after[1])
+        needles = [needle for needle in (pick.get("spoken"), pick["name"], _core(pick["name"]))
+                   if needle]
+        for needle in dict.fromkeys(needles):
+            if before := re.search(COUNT + r"\s*份?" + re.escape(needle), message):
+                quantity = _count(before[1])
+                break
+            if after := re.search(re.escape(needle) + r"\s*(?:x|×)?\s*" + COUNT, message):
+                quantity = _count(after[1])
+                break
         pick["quantity"] = max(1, min(10, quantity))
         out.append(pick)
     return out[:20]
@@ -202,8 +246,9 @@ async def _order(message, history, mcd, food, actor) -> dict:
                "storeName": clean(store["storeName"], 80), "addressText": clean(address_text, 160),
                "items": items, "productFen": quote["productFen"],
                "deliveryFen": quote["deliveryFen"], "payFen": quote["payFen"]}
-    if quote.get("discountFen") is not None:
-        payload["discountFen"] = quote["discountFen"]
+    for key in ("packingFen", "discountFen"):
+        if quote.get(key):
+            payload[key] = quote[key]
     if not food or not actor:
         return _answer("报价已算好，但下单服务当前不可用，请检查服务配置。")
     try:
@@ -214,13 +259,14 @@ async def _order(message, history, mcd, food, actor) -> dict:
             "storeName": payload["storeName"], "addressText": payload["addressText"],
             "items": items, "productFen": payload["productFen"],
             "deliveryFen": payload["deliveryFen"], "payFen": payload["payFen"],
-            **({"discountFen": payload["discountFen"]} if "discountFen" in payload else {}),
+            **{k: payload[k] for k in ("packingFen", "discountFen") if k in payload},
             "expiresAt": recorded["expiresAt"], "orderable": True, "source": MCD_SOURCE}
     summary = "、".join(f"{item['name']}×{item['quantity']}" for item in items)
+    breakdown = (f"餐品 {_money(payload['productFen'])} + 配送费 {_money(payload['deliveryFen'])}"
+                 + (f" + 打包费 {_money(payload['packingFen'])}" if "packingFen" in payload else "")
+                 + (f" - 优惠 {_money(payload['discountFen'])}" if "discountFen" in payload else ""))
     reply = (f"已出报价：{summary}，由「{payload['storeName']}」配送到 {payload['addressText']}，"
-             f"餐品 {_money(payload['productFen'])} + 配送费 {_money(payload['deliveryFen'])}"
-             + (f" - 优惠 {_money(payload['discountFen'])}" if "discountFen" in payload else "")
-             + f"，合计 {_money(payload['payFen'])}。{note}{MEAL_DISCOUNT}"
+             f"{breakdown}，合计 {_money(payload['payFen'])}。{note}{MEAL_DISCOUNT}"
                "点卡片上的「确认下单」后才会创建订单。")
     return _answer(reply, card)
 

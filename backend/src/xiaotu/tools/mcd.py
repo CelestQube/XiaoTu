@@ -170,7 +170,10 @@ class McdService:
                 address_id = _id(row.get("addressId", row.get("id")))
                 if not ID.fullmatch(address_id):
                     continue
-                out.append({"addressId": address_id, "address": clean(row.get("address"), 120),
+                # The account's fullAddress is the pick target; contact name and
+                # phone stay server-side and never reach a card.
+                text = clean(row.get("fullAddress", row.get("address")), 160)
+                out.append({"addressId": address_id, "address": text,
                             "addressDetail": clean(row.get("addressDetail"), 120)})
             return out
         return await self._cache.get(("mcd-addresses",), 60, run)
@@ -190,10 +193,12 @@ class McdService:
                 code = _id(row.get("storeCode"))
                 if not ID.fullmatch(code):
                     continue
+                status = row.get("businessStatus")
+                open_text = {True: "营业中", False: "休息中"}.get(status, clean(status, 40))
                 out.append({"storeCode": code, "beCode": clean(row.get("beCode"), 64),
                             "storeName": clean(row.get("storeName"), 80),
-                            "address": clean(row.get("address"), 120),
-                            "businessStatus": clean(row.get("businessStatus"), 40),
+                            "address": clean(row.get("address", row.get("storeAddress")), 120),
+                            "businessStatus": open_text,
                             "businessStartTime": clean(row.get("businessStartTime"), 20),
                             "businessEndTime": clean(row.get("businessEndTime"), 20),
                             "distance": row.get("distance") if type(row.get("distance")) is int else None})
@@ -274,13 +279,19 @@ class McdService:
             "storeCode": store_code, "orderType": 2, "beType": 2, "addressId": address_id,
             **({"beCode": be_code} if be_code else {}), "items": checked}))
         product = _fen_first(data, ("productPrice", "productAmount", "foodPrice", "foodAmount"))
-        pay = _fen_first(data, ("payPrice", "payablePrice", "totalPrice", "realPayPrice", "payAmount", "orderAmount"))
+        pay = _fen_first(data, ("payPrice", "payablePrice", "price", "totalPrice", "realPayPrice",
+                                "payAmount", "orderAmount"))
         if product is None or pay is None:
             raise invalid()
         quote = {"productFen": product, "payFen": pay,
-                 "deliveryFen": _fen_first(data, ("deliveryPrice", "deliveryFee", "shippingPrice", "shippingFee")) or 0}
+                 "deliveryFen": _fen_first(data, ("deliveryPrice", "deliveryFee", "shippingPrice",
+                                                  "shippingFee")) or 0}
+        # Packing fee is real on 麦乐送 and must be shown instead of hiding the gap.
+        packing = _fen_first(data, ("packingPrice", "packingFee", "packingOriginalPrice"))
+        if packing:
+            quote["packingFen"] = packing
         if (discount := _fen_first(data, ("discountPrice", "couponPrice", "preferentialPrice",
-                                          "discountAmount", "couponAmount"))) is not None:
+                                          "discountAmount", "couponAmount", "discount"))) is not None:
             quote["discountFen"] = discount
         return quote
 
@@ -295,7 +306,7 @@ class McdService:
                 continue
             entry = {"orderId": order_id, "orderStatus": clean(row.get("orderStatus", row.get("status")), 40),
                      "storeName": clean(row.get("storeName"), 80), "createTime": clean(row.get("createTime"), 40)}
-            if (total := price_fen(row.get("totalAmount", row.get("totalPrice")))) is not None:
+            if (total := price_fen(row.get("realTotalAmount", row.get("totalAmount", row.get("totalPrice"))))) is not None:
                 entry["totalFen"] = total
             rows.append(entry)
         return rows

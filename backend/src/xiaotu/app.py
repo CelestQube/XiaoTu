@@ -111,7 +111,7 @@ def receipt(result):
         value["provider"] = "mcd"
         value["sandbox"] = False
         for key in ("storeName","addressText","items","productFen","deliveryFen","payFen",
-                    "totalFen","orderStatus","payUrl","pickupCode","createTime","route",
+                    "packingFen","totalFen","orderStatus","payUrl","pickupCode","createTime","route",
                     "amountMismatch","expiresAt"):
             if result.get(key) is not None:
                 value[key] = result[key]

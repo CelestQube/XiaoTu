@@ -170,3 +170,35 @@ def test_food_comparison_stays_chat_and_never_touches_tools(tmp_path):
         result = chat(client, "麦当劳和肯德基哪个好吃")
         assert result["intent"] == "chat" and "cards" not in result
         assert mcd.calls == []
+
+
+def test_match_items_handles_real_menu_naming():
+    from xiaotu.agent.food import _match_items
+    menu = {"meals": {
+        "N1": {"name": "麦乐鸡5块", "priceFen": 1550},
+        "N2": {"name": "麦乐鸡(5块)套餐", "priceFen": 3000},
+        "N3": {"name": "麦乐鸡开心乐园餐", "priceFen": 2200},
+        "N4": {"name": "可口可乐", "priceFen": 1100},
+        "N5": {"name": "无糖可口可乐", "priceFen": 1100},
+        "N6": {"name": "巨无霸", "priceFen": 2550},
+        "N7": {"name": "巨无霸套餐", "priceFen": 4400},
+        "N8": {"name": "麦辣鸡翅2块", "priceFen": 1300},
+    }}
+    picks = {pick["name"]: pick["quantity"] for pick in _match_items("来两份麦乐鸡，再来一杯可乐", menu)}
+    assert picks == {"麦乐鸡5块": 2, "可口可乐": 1}
+    # Digit and parenthesised suffixes fold to the plain product, not the combo.
+    picks = {pick["name"] for pick in _match_items("来份麦乐鸡", menu)}
+    assert picks == {"麦乐鸡5块"}
+    picks = {pick["name"] for pick in _match_items("想吃麦辣鸡翅", menu)}
+    assert picks == {"麦辣鸡翅2块"}
+    # Longer alias wins so 无糖可乐 never becomes a regular cola.
+    picks = {pick["name"]: pick["quantity"] for pick in _match_items("无糖可乐两杯", menu)}
+    assert picks == {"无糖可口可乐": 2}
+    # Colloquial alias keeps its spoken quantity.
+    picks = {pick["name"]: pick["quantity"] for pick in _match_items("麦乐鸡3份 可乐x2", menu)}
+    assert picks == {"麦乐鸡5块": 3, "可口可乐": 2}
+    # A mention inside a longer picked name is not a second order line.
+    picks = {pick["name"]: pick["quantity"] for pick in _match_items("巨无霸套餐两份", menu)}
+    assert picks == {"巨无霸套餐": 2}
+    picks = {pick["name"]: pick["quantity"] for pick in _match_items("巨无霸和巨无霸套餐各来一份", menu)}
+    assert picks == {"巨无霸": 1, "巨无霸套餐": 1}

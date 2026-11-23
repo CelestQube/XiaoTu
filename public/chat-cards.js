@@ -109,6 +109,8 @@ function foodMenu(card, icon) {
 function foodTotals(card) {
   return '<dl class="food-totals"><div><dt>餐品</dt><dd>' + fen(card.productFen) + '</dd></div>'
     + '<div><dt>配送费</dt><dd>' + fen(card.deliveryFen) + '</dd></div>'
+    + (Number.isInteger(card.packingFen) && card.packingFen > 0
+      ? '<div><dt>打包费</dt><dd>' + fen(card.packingFen) + '</dd></div>' : '')
     + (Number.isInteger(card.discountFen) ? '<div><dt>优惠</dt><dd>-' + fen(card.discountFen) + '</dd></div>' : '')
     + '<div class="food-pay"><dt>应付</dt><dd>' + fen(Number.isInteger(card.totalFen) ? card.totalFen : card.payFen)
     + '</dd></div></dl>';
@@ -160,8 +162,9 @@ function foodAddresses(card, icon) {
 function foodStores(card, icon) {
   return '<section class="chat-card chat-card-food" aria-label="麦当劳可配送门店">'
     + head(icon('pin'), '麦当劳 · 可配送门店', card.addressText || '可配送门店')
-    + foodRows(card, 'stores', row => '<li><span><strong>' + esc(row.storeName) + '</strong><br>'
-      + esc(row.address || '未返回地址') + '<small>' + esc(row.businessStatus || '')
+    + foodRows(card, 'stores', row => '<li><span><strong>' + esc(row.storeName) + '</strong>'
+      + (row.address ? '<br>' + esc(row.address) : '')
+      + '<small>' + esc(row.businessStatus || '')
       + (row.businessStartTime ? ' ' + esc(row.businessStartTime) + '–' + esc(row.businessEndTime || '') : '')
       + '</small></span></li>', '这个地址暂无可配送门店。')
     + '<footer class="chat-card-foot">' + esc(card.source || '麦当劳 MCP') + '</footer></section>';

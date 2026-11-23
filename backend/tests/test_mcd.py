@@ -252,14 +252,15 @@ def test_money_units_are_normalized_to_fen():
 
 
 async def test_service_addresses_hide_contact_details_and_cache():
-    transport = FakeTransport({"delivery-query-addresses": {"success": True, "data": {"list": [
-        {"addressId": "301", "address": "上海市黄浦区", "addressDetail": "某酒店前台",
-         "contactName": "张三", "phone": "13800000000"},
+    transport = FakeTransport({"delivery-query-addresses": {"success": True, "data": {"addresses": [
+        {"addressId": "1036973900137578007463830782", "fullAddress": "福建省福州市鼓楼区观风亭街119号 书香红墙5号楼1804",
+         "contactName": "张三", "phone": "153****0721"},
         {"addressId": "302", "address": "杭州市西湖区"}, "not-a-dict"]}}})
     service = McdService(transport=transport)
     try:
         rows = await service.addresses()
-        assert rows == [{"addressId": "301", "address": "上海市黄浦区", "addressDetail": "某酒店前台"},
+        assert rows == [{"addressId": "1036973900137578007463830782",
+                         "address": "福建省福州市鼓楼区观风亭街119号 书香红墙5号楼1804", "addressDetail": ""},
                         {"addressId": "302", "address": "杭州市西湖区", "addressDetail": ""}]
         assert "phone" not in rows[0] and "contactName" not in rows[0]
         assert len(await service.addresses()) == 2  # second call served from cache
@@ -290,13 +291,16 @@ async def test_service_meals_normalize_prices_to_fen():
 
 
 async def test_service_calculate_price_parses_fen_and_rejects_missing_amount():
+    # Field names and units as observed on the live server (2026-11-23).
     transport = FakeTransport({"calculate-price": {"success": True, "data": {
-        "productPrice": 2200, "deliveryPrice": 900, "payPrice": 3100, "couponPrice": 100}}})
+        "productPrice": 3100, "deliveryPrice": 600, "packingPrice": 160,
+        "price": 3860, "discount": 0}}})
     service = McdService(transport=transport)
     try:
         quote = await service.calculate_price(store_code="S1", address_id="301", be_code="B1",
-                                              items=[{"productCode": "M1", "quantity": 1}])
-        assert quote == {"productFen": 2200, "payFen": 3100, "deliveryFen": 900, "discountFen": 100}
+                                              items=[{"productCode": "M1", "quantity": 2}])
+        assert quote == {"productFen": 3100, "payFen": 3860, "deliveryFen": 600,
+                         "packingFen": 160, "discountFen": 0}
         transport.results["calculate-price"] = {"success": True, "data": {"productPrice": 2200}}
         with pytest.raises(McdError) as missing:
             await service.calculate_price(store_code="S1", address_id="301",
@@ -329,8 +333,9 @@ async def test_service_business_refusal_and_item_validation():
 async def test_service_order_receipts_convert_yuan_strings():
     transport = FakeTransport({
         "order-list": {"success": True, "data": {"list": [
-            {"orderId": "ORD1", "orderStatus": "待支付", "totalAmount": "22",
-             "storeName": "麦当劳南京西路店", "createTime": "2026-11-20 12:00:00"},
+            {"orderId": "1030118370000753026063769777", "orderStatus": "已完成",
+             "realTotalAmount": "0", "storeName": "麦当劳福州五四中路餐厅",
+             "createTime": "2026-07-25 19:21:24"},
             {"orderId": "", "totalAmount": "1"}]}},
         "create-order": {"success": True, "data": {
             "orderId": "ORD9", "payId": "P1", "payH5Url": "https://pay.example/h5",
@@ -341,8 +346,9 @@ async def test_service_order_receipts_convert_yuan_strings():
     service = McdService(transport=transport)
     try:
         orders = await service.order_list()
-        assert orders == [{"orderId": "ORD1", "orderStatus": "待支付", "storeName": "麦当劳南京西路店",
-                           "createTime": "2026-11-20 12:00:00", "totalFen": 2200}]
+        assert orders == [{"orderId": "1030118370000753026063769777", "orderStatus": "已完成",
+                           "storeName": "麦当劳福州五四中路餐厅",
+                           "createTime": "2026-07-25 19:21:24", "totalFen": 0}]
         receipt = await service.create_order(store_code="S1", address_id="301",
                                              items=[{"productCode": "M1", "quantity": 1}])
         assert receipt["orderId"] == "ORD9" and receipt["totalFen"] == 3100
