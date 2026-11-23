@@ -98,7 +98,7 @@ def build_chat_graph(config, model, maps, rail, journey, proof, mcd=None, food=N
             if not reply:
                 reply = ("你好，我是小途！目前是本地演示，还未配置模型。"
                          if is_social(d["message"]) else
-                         "目前没有配置 Qwen，暂时不能进行一般问答。已接入的天气、铁路查询和行程演示仍可使用。")
+                         "目前没有配置对话模型，暂时不能进行一般问答。已接入的天气、铁路查询和行程演示仍可使用。")
             return {"reply": {**d["result"], "intent": "chat", "reply": reply}}
         missing = [label for k, label in (("city","目的地"),("days","旅行天数（1–7 天）"),("people","人数（1–20 人）")) if not d["trip"].get(k)]
         return {"reply": {**d["result"], "intent": "plan", "trip": d["trip"],

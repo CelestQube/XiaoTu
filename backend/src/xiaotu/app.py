@@ -215,6 +215,7 @@ def create_app(config: Settings | None = None, *, maps=None, railway=None, model
     async def status():
         mcd_ready = app.state.mcd is not None and app.state.mcd.configured
         return dict(backend="python", mode="qwen" if config.key or model else "demo",
+                    model=config.model if config.key or model else "",
                     map="tencent-mcp" if maps.configured else "unconfigured", mapMcp=maps.configured,
                     mapStatic=maps.static_configured, rail="12306-mcp" if rail.configured else "manual", railState=rail.status(),
                     calendar="ics", planPoi=True, journeyFlow=True, placeEditor=True, departureEditor=True,

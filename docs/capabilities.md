@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | MCP：连接真实数据与操作 | `config/mcp_settings.json` | 12306 查车票、腾讯地图核实地点和查天气 |
 | Skill：告诉小途在什么阶段、按什么工作方法处理 | `config/skills.json` 和 `skills/<名称>/SKILL.md` | 减少当天来回跨区，没确认抵达时间就不安排必须提前预约的项目 |
-| 私有凭据 | 根目录 `.env`（不要提交） | `TENCENT_MAP_API_KEY`、`DASHSCOPE_API_KEY` |
+| 私有凭据 | 根目录 `.env`（不要提交） | `TENCENT_MAP_API_KEY`、`XIAOTU_MODEL_API_KEY`（旧名 `DASHSCOPE_API_KEY`）、`MCD_MCP_TOKEN` |
 
 ## 现有 MCP 怎么安装、怎么关闭
 

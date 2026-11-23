@@ -10,6 +10,8 @@ const $ = (selector) => document.querySelector(selector);
 const esc = (value = '') => String(value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const money = (value = 0) => new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }).format(Number(value) || 0);
 const key = 'xiaotu.workspace.v1';
+// Thinking models may reason for a minute or more before an itinerary arrives.
+const CHAT_WAIT = 240000;
 let stored = {};
 try { stored = JSON.parse(localStorage.getItem(key) || '{}') || {}; } catch { /* Corrupt storage must not prevent startup. */ }
 const state = {
@@ -67,7 +69,7 @@ function toast(message) {
   clearTimeout(toast.timer); toast.timer = setTimeout(() => el.classList.remove('show'), 4500);
 }
 function navigate(view) { state.view = view; render(); $('#main')?.focus({ preventScroll: true }); if(view==='itinerary')autoDeparture(); }
-function badge(mode) { return mode === 'qwen' ? 'Qwen 对话' : '演示模式'; }
+function badge(mode, name) { return mode === 'qwen' ? esc(name || '模型') + ' 对话' : '演示模式'; }
 function placeBadge(item) {
   const status=item.mapStatus==='verified'&&(item.poi?.tripCity!==state.trip.city||item.poi?.name!==item.location)?'pending':item.mapStatus;
   const label = {verified:'地图已核实',pending:'待核实',placeholder:'待选'}[status];
@@ -75,7 +77,7 @@ function placeBadge(item) {
 }
 function header() {
   const names = { chat: ['与小途聊聊', '从一个念头，到一段旅程'], itinerary: ['我的行程', '把每一天，安排得刚刚好'], budget: ['旅行账本', '花得明白，玩得自在'], profile: ['旅行偏好', '你的旅途，由你定义'], tools: ['数据与连接', '知道每条信息来自哪里'], 'food-order': ['外卖订单', '确认过的每一单，都查得到'] };
-  return '<header class="topbar"><div class="page-heading"><strong>' + names[state.view][0] + '</strong><span>' + names[state.view][1] + '</span></div><div class="top-actions">' + foodOrderEntry(state.statusError ? null : state.status) + '<span class="mode-badge ' + (state.statusError ? 'error' : '') + '"><i></i>' + (state.statusError ? '服务未连接' : state.status ? badge(state.status.mode) : '检查连接中') + '</span><button class="avatar" data-view="profile" aria-label="打开旅行偏好">' + icon('user') + '</button></div></header>';
+  return '<header class="topbar"><div class="page-heading"><strong>' + names[state.view][0] + '</strong><span>' + names[state.view][1] + '</span></div><div class="top-actions">' + foodOrderEntry(state.statusError ? null : state.status) + '<span class="mode-badge ' + (state.statusError ? 'error' : '') + '"><i></i>' + (state.statusError ? '服务未连接' : state.status ? badge(state.status.mode, state.status.model) : '检查连接中') + '</span><button class="avatar" data-view="profile" aria-label="打开旅行偏好">' + icon('user') + '</button></div></header>';
 }
 function sidebar() {
   return '<aside class="sidebar"><a class="brand" href="#chat" aria-label="小途首页"><img src="/assets/logo-a.svg" alt="" width="42" height="42"><span>小途<small>随心出发 · XIAOTU</small></span></a><button class="new-chat" data-action="new" ' + (state.busy ? 'disabled' : '') + '>' + icon('plus') + ' 开始新旅程</button><nav aria-label="主要导航">' + [['chat','chat','与小途聊聊'],['itinerary','map','我的行程'],['budget','wallet','旅行账本'],['profile','user','旅行偏好']].map(([id,ico,name]) => '<button data-view="' + id + '" class="nav-item ' + (state.view === id ? 'active' : '') + '" ' + (state.view === id ? 'aria-current="page"' : '') + '>' + icon(ico) + '<span>' + name + '</span>' + (id === 'itinerary' && state.plan ? '<i class="nav-dot"></i>' : '') + '</button>').join('') + '</nav><div class="sidebar-note"><span class="eyebrow">下一站 · 不必匆忙</span><p>把时间留给风景，<br>把计划交给小途。</p><div class="mini-landscape" aria-hidden="true"></div></div><div class="sidebar-bottom"><button class="nav-item ' + (state.view === 'tools' ? 'active' : '') + '" data-view="tools">' + icon('plug') + '<span>数据与连接</span></button><a href="/logo-concepts.html" class="prototype-link">原型 v0.1 · Logo 待确认 ↗</a></div></aside>';
@@ -91,7 +93,7 @@ function messageList() {
       + '<span><strong>行程草案已整理</strong><small>查看每日安排与预算估算</small></span>' + icon('arrow') + '</button>' : '';
     return '<article class="message ' + (assistant ? 'assistant' : 'user') + '"><div class="message-avatar">'
       + (assistant ? avatar : '我') + '</div><div class="message-body"><div class="message-author">' + (assistant ? '小途' : '你')
-      + (m.mode ? '<span>' + badge(m.mode) + '</span>' : '') + '</div><div class="message-text">' + esc(m.content) + '</div>'
+      + (m.mode ? '<span>' + badge(m.mode, state.status?.model) + '</span>' : '') + '</div><div class="message-text">' + esc(m.content) + '</div>'
       + (assistant ? renderChatCards(m.cards, icon) : '') + planLink + '</div></article>';
   }).join('');
   const loading = state.busy ? '<article class="message assistant"><div class="message-avatar">' + avatar
@@ -225,7 +227,7 @@ function profile() {
 function toolsPage() {
   const s = state.status;
   const cards = [
-    ['chat','对话模型',s ? (s.mode === 'qwen' ? 'Qwen 已配置' : '本地演示') : '连接待确认', '真实调用与演示模式会分别标注。模型凭据仅在服务端配置，浏览器不会接收密钥。'],
+    ['chat','对话模型',s ? (s.mode === 'qwen' ? esc(s.model || '模型') + ' 已配置' : '本地演示') : '连接待确认', '真实调用与演示模式会分别标注。模型凭据仅在服务端配置，浏览器不会接收密钥。'],
     ['pin','腾讯地图 MCP',s ? (s.mapMcp ? '已配置 · 以实际查询为准' : '未配置') : '连接待确认', '地点、天气、逆地理编码和分段路线通过 MCP 获取。行程底图使用腾讯静态地图；照片、评分与评论只展示实际返回的内容。'],
     ['train','铁路与城际交通',s?.rail==='12306-mcp'?({ready:'已收到查询结果',unavailable:'上次查询失败',unchecked:'已配置 · 待查询'}[s.railState]||'已配置'):'未启用', '通过第三方 12306 MCP 查询直达车票、一次换乘、经停和车站。只查询，不代购。<br><button class="outline" data-action="rail-query">打开铁路查询</button>'],
     ['fork','麦当劳 MCP 外卖',s ? (s.mcd === 'mcd-mcp' ? (s.mcdOrder ? '已配置 · 可下单' : '已配置 · 仅查询') : '未配置') : '连接待确认', '通过官方 MCP 查询菜单、可配送门店、优惠券和订单进度。下单需要在报价卡片上显式确认；创建的是账号里真实的待支付订单，支付由你自己完成。'],
@@ -326,7 +328,7 @@ async function sendMessage() {
   state.messages.push({role:'user',content:message}); state.input = ''; state.busy = true; render();
   requestController = new AbortController();
   let planned=false;
-  const timeout = setTimeout(() => requestController.abort('timeout'), 90000);
+  const timeout = setTimeout(() => requestController.abort('timeout'), CHAT_WAIT);
   try {
     const response = await fetch('/api/chat', { method:'POST', headers:{'Content-Type':'application/json'}, signal:requestController.signal, body:JSON.stringify({message,history,trip:state.trip,priorPlan:state.plan,profile:state.useProfile ? state.profile : {}}) });
     const data = await response.json();
@@ -346,7 +348,7 @@ async function sendMessage() {
     state.suggestion = data.profileSuggestion && Object.keys(data.profileSuggestion).length ? data.profileSuggestion : null;
     if (updatingTrip) persist();
   } catch (error) {
-    const content = requestController.signal.aborted ? (requestController.signal.reason === 'timeout' ? '这次等待超过了 90 秒。输入已保留，请稍后重试。' : '已停止本次生成。你可以修改输入后重新发送。') : '这次未能完成：' + (error.message || '请检查本地服务连接。');
+    const content = requestController.signal.aborted ? (requestController.signal.reason === 'timeout' ? '这次等待超过了 ' + CHAT_WAIT / 1000 + ' 秒。输入已保留，请稍后重试。' : '已停止本次生成。你可以修改输入后重新发送。') : '这次未能完成：' + (error.message || '请检查本地服务连接。');
     state.messages.push({role:'assistant',content,failed:true}); state.input = message;
   } finally { clearTimeout(timeout); state.busy = false; render(); $('#message')?.focus(); if(planned)autoDeparture(); }
 }

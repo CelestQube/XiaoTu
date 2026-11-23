@@ -23,6 +23,8 @@ MCP = {
         "query-store-coupons", "calculate-price", "query-order", "order-list", "create-order"
     })),
 }
+# reasoning_effort levels accepted by thinking models, weakest first.
+EFFORTS = ("minimal", "low", "medium", "high", "xhigh", "max")
 
 
 @dataclass(frozen=True)
@@ -32,6 +34,7 @@ class Settings:
     model: str = "qwen-plus"
     base: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     thinking: bool | None = None
+    effort: str = ""
     tencent_key: str = ""
     rail_enabled: bool = True
     port: int = 3212
@@ -121,9 +124,18 @@ def load_settings(root=ROOT, env=None):
     mcp, skills, names = capabilities(root)
     supplied_port = get("XIAOTU_PY_PORT", "3212")
     port = int(supplied_port) if supplied_port.isascii() and supplied_port.isdigit() and len(supplied_port) <= 5 else 3212
-    return Settings(root=root, key=get("DASHSCOPE_API_KEY"), model=get("QWEN_MODEL", "qwen-plus"),
-                    base=get("QWEN_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
-                    thinking={"true": True, "false": False}.get(get("QWEN_ENABLE_THINKING").lower()),
+    # QWEN_* names remain as aliases so existing .env files keep working.
+    effort = get("XIAOTU_MODEL_REASONING_EFFORT").lower()
+    if effort and effort not in EFFORTS:
+        raise ValueError(f"XIAOTU_MODEL_REASONING_EFFORT 无效：可选 {' / '.join(EFFORTS)}。")
+    return Settings(root=root,
+                    key=get("XIAOTU_MODEL_API_KEY") or get("DASHSCOPE_API_KEY"),
+                    model=get("XIAOTU_MODEL") or get("QWEN_MODEL", "qwen-plus"),
+                    base=get("XIAOTU_MODEL_BASE_URL")
+                    or get("QWEN_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
+                    thinking={"true": True, "false": False}.get(
+                        (get("XIAOTU_MODEL_THINKING") or get("QWEN_ENABLE_THINKING")).lower()),
+                    effort=effort,
                     tencent_key=get("TENCENT_MAP_API_KEY"), rail_enabled=get("RAIL_MCP_ENABLED").lower() != "false",
                     port=port if 1024 <= port <= 65535 else 3212,
                     mcp=mcp, skills=skills, skill_names=names, food_enabled=get("XIAOTU_FOOD_DEMO").lower() == "true",
